@@ -130,7 +130,7 @@ function EmptyState({ icon: Icon, message }) {
 }
 
 // ─── Swipeable Row (touch + mouse drag to reveal actions) ─────────────────
-function SwipeRow({ children, actions, isOpen, onToggle }) {
+function SwipeRow({ children, actions, isOpen, onToggle, darkMode }) {
   const [dragX, setDragX] = useState(0);
   const [startX, setStartX] = useState(null);
   const [dragging, setDragging] = useState(false);
@@ -185,7 +185,7 @@ function SwipeRow({ children, actions, isOpen, onToggle }) {
       </div>
       {/* Main content — slides left */}
       <div
-        className="relative bg-white z-10"
+        className={`relative z-10 ${darkMode ? 'bg-slate-800' : 'bg-white'}`}
         style={{ transform: `translateX(${displayX}px)`, transition: dragging ? "none" : "transform 0.25s ease-out" }}
         onTouchStart={(e) => handleStart(e.touches[0].clientX)}
         onTouchMove={(e) => handleMove(e.touches[0].clientX)}
@@ -396,7 +396,8 @@ export default function PaycheckPlanner() {
   const [payCalcDraft, setPayCalcDraft] = useState(null);
   const [payCalcSettings, setPayCalcSettings] = useState({
     hourlyRate: 15, federalRate: 12, stateRate: 5, ficaRate: 7.65, otRate: 1.5,
-    preTaxDeductions: 0, name: "Partner"
+    preTaxDeductions: 0, name: "Partner", filingStatus: "single", state: "TX",
+    hoursPerWeek: 40, weeksPerYear: 52, autoTax: true
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1016,6 +1017,57 @@ export default function PaycheckPlanner() {
   const plannerBalance = plannerTotalIncome - plannerTotalExpenses;
   const plannerPaidExpenses = plannerItems.filter((i) => i.type === "expense" && i.paid).reduce((s, i) => s + i.amount, 0);
   const plannerUnpaidExpenses = plannerTotalExpenses - plannerPaidExpenses;
+
+  // ─── TAX BRACKET CALCULATOR ─────────────────────────────────────────────
+  const taxEstimate = useMemo(() => {
+    const s = payCalcSettings;
+    const annualGross = s.hourlyRate * s.hoursPerWeek * s.weeksPerYear;
+    const annualPreTax = s.preTaxDeductions * (s.weeksPerYear / (s.weeksPerYear <= 26 ? 1 : 2));
+    const taxableIncome = Math.max(0, annualGross - annualPreTax);
+
+    // 2024 Federal brackets
+    const fedBrackets = s.filingStatus === "married" ? [
+      [23200, 0.10], [94300, 0.12], [201050, 0.22], [383900, 0.24], [487450, 0.32], [731200, 0.35], [Infinity, 0.37]
+    ] : s.filingStatus === "head" ? [
+      [16550, 0.10], [63100, 0.12], [100500, 0.22], [191950, 0.24], [243725, 0.32], [609350, 0.35], [Infinity, 0.37]
+    ] : [
+      [11600, 0.10], [47150, 0.12], [100525, 0.22], [191950, 0.24], [243725, 0.32], [609350, 0.35], [Infinity, 0.37]
+    ];
+    // Standard deduction
+    const stdDed = s.filingStatus === "married" ? 29200 : s.filingStatus === "head" ? 21900 : 14600;
+    const fedTaxable = Math.max(0, taxableIncome - stdDed);
+    let fedTax = 0, prev = 0;
+    for (const [limit, rate] of fedBrackets) {
+      if (fedTaxable <= prev) break;
+      fedTax += (Math.min(fedTaxable, limit) - prev) * rate;
+      prev = limit;
+    }
+    const effFedRate = taxableIncome > 0 ? (fedTax / taxableIncome) * 100 : 0;
+
+    // State tax rates (effective/flat approximations)
+    const stateRates = {
+      AL: 4.0, AK: 0, AZ: 2.5, AR: 3.9, CA: 6.0, CO: 4.4, CT: 5.0, DE: 4.8,
+      FL: 0, GA: 5.49, HI: 6.0, ID: 5.8, IL: 4.95, IN: 3.05, IA: 5.7, KS: 5.25,
+      KY: 4.0, LA: 3.0, ME: 5.8, MD: 4.75, MA: 5.0, MI: 4.25, MN: 5.35,
+      MS: 4.7, MO: 4.8, MT: 5.9, NE: 5.01, NV: 0, NH: 0, NJ: 5.525,
+      NM: 4.9, NY: 5.5, NC: 4.5, ND: 1.95, OH: 3.5, OK: 4.75, OR: 8.75,
+      PA: 3.07, RI: 4.75, SC: 6.4, SD: 0, TN: 0, TX: 0, UT: 4.65,
+      VT: 6.0, VA: 5.75, WA: 0, WV: 5.12, WI: 5.3, WY: 0, DC: 6.5
+    };
+    const stateRate = stateRates[s.state] || 0;
+    const ficaRate = 7.65;
+
+    return { annualGross, taxableIncome, fedTax, effFedRate: Math.round(effFedRate * 100) / 100,
+      stateRate, ficaRate, stdDed, fedTaxable, marginalBracket: fedBrackets.find(([l]) => fedTaxable <= l)?.[1] * 100 || 37,
+      totalEffRate: Math.round((effFedRate + stateRate + ficaRate) * 100) / 100,
+      annualNet: taxableIncome - fedTax - (taxableIncome * stateRate / 100) - (taxableIncome * ficaRate / 100)
+    };
+  }, [payCalcSettings]);
+
+  // Auto-apply estimated rates when autoTax is on
+  const pcFedRate = payCalcSettings.autoTax ? taxEstimate.effFedRate : payCalcSettings.federalRate;
+  const pcStateRate = payCalcSettings.autoTax ? taxEstimate.stateRate : payCalcSettings.stateRate;
+  const pcFicaRate = payCalcSettings.autoTax ? taxEstimate.ficaRate : payCalcSettings.ficaRate;
 
   // ─── RENDER ─────────────────────────────────────────────────────────────
   return (
@@ -1647,7 +1699,7 @@ export default function PaycheckPlanner() {
                     const isIncome = item.type === "income";
 
                     return (
-                      <SwipeRow
+                      <SwipeRow darkMode={darkMode}
                         key={item.id}
                         isOpen={swipedItemId === item.id}
                         onToggle={(open) => setSwipedItemId(open ? item.id : null)}
@@ -1871,16 +1923,22 @@ export default function PaycheckPlanner() {
                 {group.bills.length === 0 ? <p className="text-sm text-gray-400 italic">No bills in this window</p> : (
                   <div className="space-y-2">
                     {group.bills.map((b) => (
-                      <div key={b.id} className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-gray-50 transition group">
-                        <span className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 text-xs font-bold flex items-center justify-center">{b.dueDay}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-800">{b.name}</p>
-                          <p className="text-xs text-gray-400">{b.category}{b.autopay ? " · Autopay" : ""}</p>
+                      <SwipeRow key={b.id} darkMode={darkMode}
+                        isOpen={swipedItemId === `bill-${b.id}`}
+                        onToggle={(open) => setSwipedItemId(open ? `bill-${b.id}` : null)}
+                        actions={[
+                          { label: "Edit", icon: <Settings size={16} />, onClick: () => startEditBill(b), className: "bg-indigo-500" },
+                          { label: "Delete", icon: <Trash2 size={16} />, onClick: () => removeBill(b.id), className: "bg-rose-500" },
+                        ]}>
+                        <div className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-700')} transition`}>
+                          <span className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 text-xs font-bold flex items-center justify-center">{b.dueDay}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')}`}>{b.name}</p>
+                            <p className="text-xs text-gray-400">{b.category}{b.autopay ? " · Autopay" : ""}</p>
+                          </div>
+                          <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>{fmt(b.amount)}</span>
                         </div>
-                        <span className="text-sm font-semibold text-gray-700">{fmt(b.amount)}</span>
-                        <button onClick={() => startEditBill(b)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-indigo-500 transition"><Settings size={14} /></button>
-                        <button onClick={() => removeBill(b.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
-                      </div>
+                      </SwipeRow>
                     ))}
                   </div>
                 )}
@@ -1950,13 +2008,18 @@ export default function PaycheckPlanner() {
                   const txns = savingsTransactions[g.id] || [];
                   const isExpanded = expandedGoalId === g.id;
                   return (
-                    <Card key={g.id} darkMode={darkMode}>
+                    <SwipeRow key={g.id} darkMode={darkMode}
+                      isOpen={swipedItemId === `goal-${g.id}`}
+                      onToggle={(open) => setSwipedItemId(open ? `goal-${g.id}` : null)}
+                      actions={[
+                        { label: "Delete", icon: <Trash2 size={16} />, onClick: () => removeGoal(g.id), className: "bg-rose-500" },
+                      ]}>
+                    <Card darkMode={darkMode}>
                       <div className="flex items-start justify-between mb-2">
                         <div>
                           <h3 className={`font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{g.name}</h3>
                           <p className="text-xs text-gray-400">{fmt(g.monthlyContribution)}/mo · {g.months === Infinity ? "No contributions" : g.months <= 0 ? "Goal reached!" : `${g.months} months to go`}</p>
                         </div>
-                        <button onClick={() => removeGoal(g.id)} className="text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
                       </div>
                       <ProgressBar value={g.saved} max={g.target} color={g.color} height={10} />
                       <div className="flex justify-between mt-2 text-xs text-gray-500">
@@ -2048,6 +2111,7 @@ export default function PaycheckPlanner() {
                         </div>
                       )}
                     </Card>
+                    </SwipeRow>
                   );
                 })}
               </div>
@@ -2171,7 +2235,7 @@ export default function PaycheckPlanner() {
                         </div>
                         <ProgressBar value={spent} max={budgetAmount} color={isOverBudget ? "#f43f5e" : "#6366f1"} height={6} />
                         {isOverBudget && (
-                          <div className="flex items-center gap-1.5 mt-2 text-xs text-rose-500">
+                          <div className={`flex items-center gap-1.5 mt-2 px-2 py-1.5 rounded-md text-xs font-medium ${dm('bg-rose-50 text-rose-600', 'bg-rose-950/30 text-rose-400')}`}>
                             <AlertCircle size={12} />
                             <span>Over budget by {fmt(spent - budgetAmount)}</span>
                           </div>
@@ -2354,32 +2418,43 @@ export default function PaycheckPlanner() {
                         savings: { bg: "bg-cyan-100", text: "text-cyan-700", label: "Savings", iconBg: "bg-cyan-50", iconText: "text-cyan-500" },
                         manual: { bg: "bg-indigo-100", text: "text-indigo-700", label: "", iconBg: "bg-indigo-50", iconText: "text-indigo-500" },
                       }[e.type];
-                      return (
-                        <div key={e.id} className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-gray-50 transition group">
+                      return !e.recurring ? (
+                        <SwipeRow key={e.id} darkMode={darkMode}
+                          isOpen={swipedItemId === `exp-${e.id}`}
+                          onToggle={(open) => setSwipedItemId(open ? `exp-${e.id}` : null)}
+                          actions={[{ label: "Delete", icon: <Trash2 size={16} />, onClick: () => removeExpense(e.id), className: "bg-rose-500" }]}>
+                          <div className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-700')} transition`}>
+                            <div className={`w-8 h-8 flex-shrink-0 rounded-lg ${typeBadge.iconBg} ${typeBadge.iconText} text-xs font-bold flex items-center justify-center`}>
+                              {new Date(e.date + "T12:00").getDate()}
+                            </div>
+                            <div className="flex-1 min-w-0 overflow-hidden">
+                              <div className="flex items-center gap-1.5">
+                                <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')} truncate`}>{e.description}</p>
+                              </div>
+                              <p className="text-xs text-gray-400 truncate">
+                                {e.category}
+                                {e.goalId && (() => { const goal = goals.find((g) => g.id === e.goalId); return goal ? ` · ${goal.name} (${pct(goal.saved, goal.target)}%)` : ""; })()}
+                              </p>
+                            </div>
+                            <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} flex-shrink-0`}>{fmt(e.amount)}</span>
+                          </div>
+                        </SwipeRow>
+                      ) : (
+                        <div key={e.id} className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-700')} transition`}>
                           <div className={`w-8 h-8 flex-shrink-0 rounded-lg ${typeBadge.iconBg} ${typeBadge.iconText} text-xs font-bold flex items-center justify-center`}>
                             {new Date(e.date + "T12:00").getDate()}
                           </div>
                           <div className="flex-1 min-w-0 overflow-hidden">
                             <div className="flex items-center gap-1.5">
-                              <p className="text-sm font-medium text-gray-800 truncate">{e.description}</p>
-                              {e.recurring && (
-                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 ${typeBadge.bg} ${typeBadge.text}`}>{typeBadge.label}</span>
-                              )}
+                              <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')} truncate`}>{e.description}</p>
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 ${typeBadge.bg} ${typeBadge.text}`}>{typeBadge.label}</span>
                             </div>
                             <p className="text-xs text-gray-400 truncate">
                               {e.category}
-                              {e.goalId && (() => {
-                                const goal = goals.find((g) => g.id === e.goalId);
-                                return goal ? ` · ${goal.name} (${pct(goal.saved, goal.target)}%)` : "";
-                              })()}
+                              {e.goalId && (() => { const goal = goals.find((g) => g.id === e.goalId); return goal ? ` · ${goal.name} (${pct(goal.saved, goal.target)}%)` : ""; })()}
                             </p>
                           </div>
-                          <span className="text-sm font-semibold text-gray-700 flex-shrink-0">{fmt(e.amount)}</span>
-                          {!e.recurring ? (
-                            <button onClick={() => removeExpense(e.id)} className="flex-shrink-0 text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
-                          ) : (
-                            <div className="w-3.5 flex-shrink-0" />
-                          )}
+                          <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} flex-shrink-0`}>{fmt(e.amount)}</span>
                         </div>
                       );
                     })}
@@ -2495,13 +2570,16 @@ export default function PaycheckPlanner() {
             {debtTimelines.length === 0 ? <EmptyState icon={CreditCard} message="No debts tracked — add one!" /> : (
               <div className="space-y-4">
                 {debtTimelines.map((d) => (
-                  <Card key={d.id}>
+                  <SwipeRow key={d.id} darkMode={darkMode}
+                    isOpen={swipedItemId === `debt-${d.id}`}
+                    onToggle={(open) => setSwipedItemId(open ? `debt-${d.id}` : null)}
+                    actions={[{ label: "Delete", icon: <Trash2 size={16} />, onClick: () => removeDebt(d.id), className: "bg-rose-500" }]}>
+                  <Card darkMode={darkMode}>
                     <div className="flex items-start justify-between">
                       <div>
-                        <h3 className="font-semibold text-gray-800">{d.name}</h3>
+                        <h3 className={`font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{d.name}</h3>
                         <p className="text-xs text-gray-400">{d.rate}% APR · {fmt(d.minPayment)} min{d.extraPayment > 0 ? ` + ${fmt(d.extraPayment)} extra` : ""}</p>
                       </div>
-                      <button onClick={() => removeDebt(d.id)} className="text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
                     </div>
                     <div className="mt-3">
                       <div className="flex justify-between text-xs text-gray-500 mb-1">
@@ -2525,6 +2603,7 @@ export default function PaycheckPlanner() {
                       </div>
                     </div>
                   </Card>
+                  </SwipeRow>
                 ))}
               </div>
             )}
@@ -2750,18 +2829,22 @@ export default function PaycheckPlanner() {
                 {assets.length === 0 ? <EmptyState icon={Wallet} message="No assets tracked yet" /> : (
                   <div className="space-y-1.5">
                     {assets.map((a) => (
-                      <div key={a.id} className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-700')} transition group`}>
-                        <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 text-xs font-bold flex items-center justify-center">
-                          {a.category.charAt(0)}
+                      <SwipeRow key={a.id} darkMode={darkMode}
+                        isOpen={swipedItemId === `asset-${a.id}`}
+                        onToggle={(open) => setSwipedItemId(open ? `asset-${a.id}` : null)}
+                        actions={[{ label: "Delete", icon: <Trash2 size={16} />, onClick: () => removeAsset(a.id), className: "bg-rose-500" }]}>
+                        <div className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-700')} transition`}>
+                          <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 text-xs font-bold flex items-center justify-center">
+                            {a.category.charAt(0)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')} truncate`}>{a.name}</p>
+                            <p className="text-xs text-gray-400">{a.category}</p>
+                          </div>
+                          <input type="number" value={a.balance} onChange={(e) => updateAssetBalance(a.id, +e.target.value)}
+                            className={`w-24 text-right text-sm font-semibold ${dm('text-emerald-600 bg-transparent', 'text-emerald-400 bg-transparent')} border-b border-transparent hover:border-gray-300 focus:border-emerald-500 focus:outline-none py-1`} />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')} truncate`}>{a.name}</p>
-                          <p className="text-xs text-gray-400">{a.category}</p>
-                        </div>
-                        <input type="number" value={a.balance} onChange={(e) => updateAssetBalance(a.id, +e.target.value)}
-                          className={`w-24 text-right text-sm font-semibold ${dm('text-emerald-600 bg-transparent', 'text-emerald-400 bg-transparent')} border-b border-transparent hover:border-gray-300 focus:border-emerald-500 focus:outline-none py-1`} />
-                        <button onClick={() => removeAsset(a.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
-                      </div>
+                      </SwipeRow>
                     ))}
                     <div className={`flex justify-between pt-2 mt-2 border-t ${dm('border-gray-100', 'border-slate-700')}`}>
                       <span className={`text-sm font-semibold ${dm('text-gray-600', 'text-gray-300')}`}>Total Assets</span>
@@ -2806,28 +2889,33 @@ export default function PaycheckPlanner() {
 
                 {allLiabilities.length === 0 ? <EmptyState icon={CreditCard} message="No liabilities — great!" /> : (
                   <div className="space-y-1.5">
-                    {allLiabilities.map((l) => (
-                      <div key={l.id} className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-700')} transition group`}>
-                        <div className={`w-8 h-8 rounded-lg ${l.fromDebt ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'} text-xs font-bold flex items-center justify-center`}>
-                          {l.category.charAt(0)}
-                        </div>
+                    {allLiabilities.map((l) => l.fromDebt ? (
+                      <div key={l.id} className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-700')} transition`}>
+                        <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 text-xs font-bold flex items-center justify-center">{l.category.charAt(0)}</div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')} truncate`}>{l.name}</p>
-                            {l.fromDebt && <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">From Debts</span>}
+                            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">From Debts</span>
                           </div>
                           <p className="text-xs text-gray-400">{l.category}</p>
                         </div>
-                        {l.fromDebt ? (
-                          <span className="text-sm font-semibold text-rose-500">{fmt(l.balance)}</span>
-                        ) : (
+                        <span className="text-sm font-semibold text-rose-500">{fmt(l.balance)}</span>
+                      </div>
+                    ) : (
+                      <SwipeRow key={l.id} darkMode={darkMode}
+                        isOpen={swipedItemId === `liab-${l.id}`}
+                        onToggle={(open) => setSwipedItemId(open ? `liab-${l.id}` : null)}
+                        actions={[{ label: "Delete", icon: <Trash2 size={16} />, onClick: () => removeLiability(l.id), className: "bg-rose-500" }]}>
+                        <div className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-700')} transition`}>
+                          <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 text-xs font-bold flex items-center justify-center">{l.category.charAt(0)}</div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')} truncate`}>{l.name}</p>
+                            <p className="text-xs text-gray-400">{l.category}</p>
+                          </div>
                           <input type="number" value={l.balance} onChange={(e) => updateLiabilityBalance(l.id, +e.target.value)}
                             className={`w-24 text-right text-sm font-semibold ${dm('text-rose-500 bg-transparent', 'text-rose-400 bg-transparent')} border-b border-transparent hover:border-gray-300 focus:border-rose-500 focus:outline-none py-1`} />
-                        )}
-                        {!l.fromDebt && (
-                          <button onClick={() => removeLiability(l.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
-                        )}
-                      </div>
+                        </div>
+                      </SwipeRow>
                     ))}
                     <div className={`flex justify-between pt-2 mt-2 border-t ${dm('border-gray-100', 'border-slate-700')}`}>
                       <span className={`text-sm font-semibold ${dm('text-gray-600', 'text-gray-300')}`}>Total Liabilities</span>
@@ -2986,53 +3074,121 @@ export default function PaycheckPlanner() {
               </button>
             </div>
 
-            {/* Settings */}
+            {/* Pay & Tax Profile */}
             <Card darkMode={darkMode}>
-              <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Pay Settings</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Pay & Tax Profile</h3>
+                <button onClick={() => setPayCalcSettings({ ...payCalcSettings, autoTax: !payCalcSettings.autoTax })}
+                  className={`text-[10px] font-semibold px-2.5 py-1 rounded-full transition ${payCalcSettings.autoTax ? 'bg-emerald-100 text-emerald-700' : dm('bg-gray-100 text-gray-600', 'bg-slate-700 text-gray-300')}`}>
+                  {payCalcSettings.autoTax ? '✓ Auto Tax Rates' : 'Manual Tax Rates'}
+                </button>
+              </div>
+
+              {/* Row 1: Name, Rate, OT, Deductions */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
-                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Name</label>
+                  <label className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Name</label>
                   <input value={payCalcSettings.name} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, name: e.target.value })}
-                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
                 </div>
                 <div>
-                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Hourly Rate</label>
+                  <label className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Hourly Rate</label>
                   <div className="relative mt-1">
                     <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                    <input type="number" value={payCalcSettings.hourlyRate} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, hourlyRate: +e.target.value })}
+                    <input type="number" value={payCalcSettings.hourlyRate || ''} onFocus={(e) => e.target.select()} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, hourlyRate: e.target.value === '' ? 0 : +e.target.value })}
                       className={`w-full pl-6 pr-2 py-1.5 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
                   </div>
                 </div>
                 <div>
-                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>OT Multiplier</label>
-                  <input type="number" step="0.1" value={payCalcSettings.otRate} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, otRate: +e.target.value })}
-                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                  <label className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>OT Multiplier</label>
+                  <input type="number" step="0.1" value={payCalcSettings.otRate || ''} onFocus={(e) => e.target.select()} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, otRate: e.target.value === '' ? 0 : +e.target.value })}
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
                 </div>
                 <div>
-                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Pre-Tax Deductions</label>
+                  <label className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Pre-Tax Deductions</label>
                   <div className="relative mt-1">
                     <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                    <input type="number" value={payCalcSettings.preTaxDeductions} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, preTaxDeductions: +e.target.value })}
+                    <input type="number" value={payCalcSettings.preTaxDeductions || ''} onFocus={(e) => e.target.select()} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, preTaxDeductions: e.target.value === '' ? 0 : +e.target.value })}
                       className={`w-full pl-6 pr-2 py-1.5 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3 mt-3">
+
+              {/* Row 2: Filing Status, State, Hours/Week */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
                 <div>
-                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Federal Tax %</label>
-                  <input type="number" step="0.5" value={payCalcSettings.federalRate} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, federalRate: +e.target.value })}
-                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                  <label className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Filing Status</label>
+                  <select value={payCalcSettings.filingStatus} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, filingStatus: e.target.value })}
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`}>
+                    <option value="single">Single</option>
+                    <option value="married">Married Filing Jointly</option>
+                    <option value="head">Head of Household</option>
+                  </select>
                 </div>
                 <div>
-                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>State Tax %</label>
-                  <input type="number" step="0.5" value={payCalcSettings.stateRate} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, stateRate: +e.target.value })}
-                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                  <label className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>State</label>
+                  <select value={payCalcSettings.state} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, state: e.target.value })}
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`}>
+                    {["AL","AK","AZ","AR","CA","CO","CT","DC","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"].map(st => <option key={st} value={st}>{st}</option>)}
+                  </select>
                 </div>
                 <div>
-                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>FICA %</label>
-                  <input type="number" step="0.01" value={payCalcSettings.ficaRate} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, ficaRate: +e.target.value })}
-                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                  <label className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Hours/Week</label>
+                  <input type="number" value={payCalcSettings.hoursPerWeek || ''} onFocus={(e) => e.target.select()} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, hoursPerWeek: e.target.value === '' ? 0 : +e.target.value })}
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
                 </div>
+                <div>
+                  <label className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Weeks/Year</label>
+                  <input type="number" value={payCalcSettings.weeksPerYear || ''} onFocus={(e) => e.target.select()} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, weeksPerYear: e.target.value === '' ? 0 : +e.target.value })}
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                </div>
+              </div>
+
+              {/* Tax Rate Summary / Override */}
+              <div className={`mt-4 p-3 rounded-xl border ${dm('bg-indigo-50/50 border-indigo-200', 'bg-indigo-950/30 border-indigo-800')}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <p className={`text-xs font-semibold ${dm('text-indigo-700', 'text-indigo-300')}`}>
+                    {payCalcSettings.autoTax ? 'Estimated Tax Rates' : 'Manual Tax Rates'} — Est. Annual Gross: {fmt(taxEstimate.annualGross)}
+                  </p>
+                  <p className={`text-[10px] ${dm('text-indigo-500', 'text-indigo-400')}`}>Marginal bracket: {taxEstimate.marginalBracket}%</p>
+                </div>
+                {payCalcSettings.autoTax ? (
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className={`p-2.5 rounded-lg text-center ${dm('bg-white', 'bg-slate-700/50')}`}>
+                      <p className={`text-[10px] ${dm('text-gray-500', 'text-gray-400')}`}>Federal (eff.)</p>
+                      <p className={`text-lg font-bold ${dm('text-gray-800', 'text-gray-200')}`}>{pcFedRate}%</p>
+                    </div>
+                    <div className={`p-2.5 rounded-lg text-center ${dm('bg-white', 'bg-slate-700/50')}`}>
+                      <p className={`text-[10px] ${dm('text-gray-500', 'text-gray-400')}`}>State ({payCalcSettings.state})</p>
+                      <p className={`text-lg font-bold ${dm('text-gray-800', 'text-gray-200')}`}>{pcStateRate}%</p>
+                    </div>
+                    <div className={`p-2.5 rounded-lg text-center ${dm('bg-white', 'bg-slate-700/50')}`}>
+                      <p className={`text-[10px] ${dm('text-gray-500', 'text-gray-400')}`}>FICA</p>
+                      <p className={`text-lg font-bold ${dm('text-gray-800', 'text-gray-200')}`}>{pcFicaRate}%</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className={`text-[10px] ${dm('text-gray-500', 'text-gray-400')}`}>Federal %</label>
+                      <input type="number" step="0.5" value={payCalcSettings.federalRate || ''} onFocus={(e) => e.target.select()} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, federalRate: e.target.value === '' ? 0 : +e.target.value })}
+                        className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-0.5 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                    </div>
+                    <div>
+                      <label className={`text-[10px] ${dm('text-gray-500', 'text-gray-400')}`}>State %</label>
+                      <input type="number" step="0.5" value={payCalcSettings.stateRate || ''} onFocus={(e) => e.target.select()} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, stateRate: e.target.value === '' ? 0 : +e.target.value })}
+                        className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-0.5 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                    </div>
+                    <div>
+                      <label className={`text-[10px] ${dm('text-gray-500', 'text-gray-400')}`}>FICA %</label>
+                      <input type="number" step="0.01" value={payCalcSettings.ficaRate || ''} onFocus={(e) => e.target.select()} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, ficaRate: e.target.value === '' ? 0 : +e.target.value })}
+                        className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-0.5 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                    </div>
+                  </div>
+                )}
+                <p className={`text-[10px] mt-2 ${dm('text-indigo-400', 'text-indigo-500')}`}>
+                  Combined effective rate: {taxEstimate.totalEffRate}% · Std deduction: {fmt(taxEstimate.stdDed)} · {payCalcSettings.filingStatus === 'married' ? 'MFJ' : payCalcSettings.filingStatus === 'head' ? 'HoH' : 'Single'}
+                </p>
               </div>
             </Card>
 
@@ -3041,27 +3197,27 @@ export default function PaycheckPlanner() {
               <Card darkMode={darkMode} className={dm('border-indigo-200 bg-indigo-50/30', 'border-indigo-800 bg-indigo-950/30')}>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Regular Hours</label>
+                    <label className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Regular Hours</label>
                     <input type="number" step="0.25" placeholder="40" value={payCalcDraft.hours} onChange={(e) => setPayCalcDraft({ ...payCalcDraft, hours: e.target.value })}
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-indigo-500" autoFocus />
+                      className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} autoFocus />
                   </div>
                   <div>
-                    <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>OT Hours</label>
+                    <label className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>OT Hours</label>
                     <input type="number" step="0.25" placeholder="0" value={payCalcDraft.otHours} onChange={(e) => setPayCalcDraft({ ...payCalcDraft, otHours: e.target.value })}
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                      className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
                   </div>
                   <div>
-                    <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Tips</label>
+                    <label className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Tips</label>
                     <div className="relative mt-1">
                       <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
                       <input type="number" placeholder="0" value={payCalcDraft.tips} onChange={(e) => setPayCalcDraft({ ...payCalcDraft, tips: e.target.value })}
-                        className="w-full pl-6 pr-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                        className={`w-full pl-6 pr-2 py-1.5 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
                     </div>
                   </div>
                   <div>
-                    <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Pay Period End</label>
+                    <label className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Pay Period End</label>
                     <input type="date" value={payCalcDraft.date} onChange={(e) => setPayCalcDraft({ ...payCalcDraft, date: e.target.value })}
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                      className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
                   </div>
                 </div>
                 <div className="flex gap-2 mt-3">
@@ -3088,13 +3244,17 @@ export default function PaycheckPlanner() {
                   const otPay = entry.otHours * payCalcSettings.hourlyRate * payCalcSettings.otRate;
                   const grossPay = regPay + otPay + entry.tips;
                   const taxableIncome = grossPay - payCalcSettings.preTaxDeductions;
-                  const federal = taxableIncome * (payCalcSettings.federalRate / 100);
-                  const state = taxableIncome * (payCalcSettings.stateRate / 100);
-                  const fica = taxableIncome * (payCalcSettings.ficaRate / 100);
+                  const federal = taxableIncome * (pcFedRate / 100);
+                  const state = taxableIncome * (pcStateRate / 100);
+                  const fica = taxableIncome * (pcFicaRate / 100);
                   const totalTax = federal + state + fica;
                   const netPay = grossPay - payCalcSettings.preTaxDeductions - totalTax;
                   return (
-                    <Card key={entry.id} darkMode={darkMode}>
+                    <SwipeRow key={entry.id} darkMode={darkMode}
+                      isOpen={swipedItemId === `pay-${entry.id}`}
+                      onToggle={(open) => setSwipedItemId(open ? `pay-${entry.id}` : null)}
+                      actions={[{ label: "Delete", icon: <Trash2 size={16} />, onClick: () => setPayCalcEntries(payCalcEntries.filter(e => e.id !== entry.id)), className: "bg-rose-500" }]}>
+                    <Card darkMode={darkMode}>
                       <div className="flex items-start justify-between mb-3">
                         <div>
                           <p className={`text-sm font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>
@@ -3102,36 +3262,36 @@ export default function PaycheckPlanner() {
                           </p>
                           <p className="text-xs text-gray-400">{entry.hours}h regular{entry.otHours > 0 ? ` + ${entry.otHours}h OT` : ''}{entry.tips > 0 ? ` + ${fmt(entry.tips)} tips` : ''}</p>
                         </div>
-                        <button onClick={() => setPayCalcEntries(payCalcEntries.filter(e => e.id !== entry.id))} className="text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
-                        <div className={`p-3 rounded-lg ${dm('bg-emerald-950/30', 'bg-emerald-50')}`}>
-                          <p className="text-xs text-gray-400 mb-1">Gross Pay</p>
-                          <p className="text-lg font-bold text-emerald-600">{fmt(grossPay)}</p>
-                          <div className="text-xs text-gray-400 mt-1 space-y-0.5">
+                        <div className={`p-3 rounded-lg ${dm('bg-emerald-50', 'bg-emerald-950/30')}`}>
+                          <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')} mb-1`}>Gross Pay</p>
+                          <p className={`text-lg font-bold ${dm('text-emerald-700', 'text-emerald-400')}`}>{fmt(grossPay)}</p>
+                          <div className={`text-xs ${dm('text-gray-500', 'text-gray-400')} mt-1 space-y-0.5`}>
                             <div className="flex justify-between"><span>Regular ({entry.hours}h × {fmt(payCalcSettings.hourlyRate)})</span><span>{fmt(regPay)}</span></div>
                             {entry.otHours > 0 && <div className="flex justify-between"><span>OT ({entry.otHours}h × {fmt(payCalcSettings.hourlyRate * payCalcSettings.otRate)})</span><span>{fmt(otPay)}</span></div>}
                             {entry.tips > 0 && <div className="flex justify-between"><span>Tips</span><span>{fmt(entry.tips)}</span></div>}
                           </div>
                         </div>
-                        <div className={`p-3 rounded-lg ${dm('bg-indigo-950/30', 'bg-indigo-50')}`}>
-                          <p className="text-xs text-gray-400 mb-1">Net Pay (Take Home)</p>
-                          <p className="text-lg font-bold text-indigo-600">{fmt(netPay)}</p>
-                          <div className="text-xs text-gray-400 mt-1 space-y-0.5">
-                            {payCalcSettings.preTaxDeductions > 0 && <div className="flex justify-between"><span>Pre-tax deductions</span><span className="text-rose-400">-{fmt(payCalcSettings.preTaxDeductions)}</span></div>}
-                            <div className="flex justify-between"><span>Federal ({payCalcSettings.federalRate}%)</span><span className="text-rose-400">-{fmt(federal)}</span></div>
-                            <div className="flex justify-between"><span>State ({payCalcSettings.stateRate}%)</span><span className="text-rose-400">-{fmt(state)}</span></div>
-                            <div className="flex justify-between"><span>FICA ({payCalcSettings.ficaRate}%)</span><span className="text-rose-400">-{fmt(fica)}</span></div>
+                        <div className={`p-3 rounded-lg ${dm('bg-indigo-50', 'bg-indigo-950/30')}`}>
+                          <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')} mb-1`}>Net Pay (Take Home)</p>
+                          <p className={`text-lg font-bold ${dm('text-indigo-700', 'text-indigo-400')}`}>{fmt(netPay)}</p>
+                          <div className={`text-xs ${dm('text-gray-500', 'text-gray-400')} mt-1 space-y-0.5`}>
+                            {payCalcSettings.preTaxDeductions > 0 && <div className="flex justify-between"><span>Pre-tax ded.</span><span className="text-rose-400">-{fmt(payCalcSettings.preTaxDeductions)}</span></div>}
+                            <div className="flex justify-between"><span>Federal ({pcFedRate}%)</span><span className="text-rose-400">-{fmt(federal)}</span></div>
+                            <div className="flex justify-between"><span>State ({pcStateRate}%)</span><span className="text-rose-400">-{fmt(state)}</span></div>
+                            <div className="flex justify-between"><span>FICA ({pcFicaRate}%)</span><span className="text-rose-400">-{fmt(fica)}</span></div>
                           </div>
                         </div>
                       </div>
                     </Card>
+                    </SwipeRow>
                   );
                 })}
                 {/* Summary */}
                 <Card darkMode={darkMode} className="bg-gradient-to-br from-indigo-600 to-indigo-700 border-0 text-white">
                   <h3 className="text-sm font-semibold text-indigo-200 mb-2">Period Summary ({payCalcEntries.length} entries)</h3>
-                  <div className="grid grid-cols-3 gap-4 text-center">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
                     <div>
                       <p className="text-indigo-200 text-xs">Total Hours</p>
                       <p className="text-xl font-bold">{payCalcEntries.reduce((s, e) => s + e.hours + e.otHours, 0)}</p>
@@ -3151,7 +3311,7 @@ export default function PaycheckPlanner() {
                         const o = e.otHours * payCalcSettings.hourlyRate * payCalcSettings.otRate;
                         const gross = r + o + e.tips;
                         const taxable = gross - payCalcSettings.preTaxDeductions;
-                        const tax = taxable * ((payCalcSettings.federalRate + payCalcSettings.stateRate + payCalcSettings.ficaRate) / 100);
+                        const tax = taxable * ((pcFedRate + pcStateRate + pcFicaRate) / 100);
                         return s + gross - payCalcSettings.preTaxDeductions - tax;
                       }, 0))}</p>
                     </div>
