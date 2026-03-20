@@ -29,6 +29,17 @@ const COLORS = [
   "#84cc16", "#a855f7", "#64748b"
 ];
 
+const THEMES = {
+  default: { name: "Default", emoji: "🎨", bg: "", cardClass: "", headerClass: "", textClass: "", accentColor: "#6366f1", fontFamily: "", borderStyle: "", specialEffect: "" },
+  pipboy: { name: "Pip-Boy", emoji: "☢️", bg: "bg-black", cardClass: "border-green-500/40 bg-green-950/40 shadow-green-900/20", headerClass: "bg-black/90 border-green-500/40", textClass: "text-green-400", accentColor: "#22c55e", fontFamily: "'Courier New', monospace", borderStyle: "border-green-500/30", specialEffect: "pipboy" },
+  lego: { name: "LEGO", emoji: "🧱", bg: "bg-yellow-50", cardClass: "border-2 border-red-400 bg-white rounded-none shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)]", headerClass: "bg-red-600 border-red-700", textClass: "text-red-700", accentColor: "#dc2626", fontFamily: "'Arial Black', sans-serif", borderStyle: "border-red-400", specialEffect: "lego" },
+  comic: { name: "Comic Book", emoji: "💥", bg: "bg-yellow-100", cardClass: "border-[3px] border-black bg-white shadow-[5px_5px_0px_0px_rgba(0,0,0,1)]", headerClass: "bg-blue-600 border-black border-b-[3px]", textClass: "text-black", accentColor: "#2563eb", fontFamily: "'Comic Sans MS', 'Bangers', cursive", borderStyle: "border-black border-2", specialEffect: "comic" },
+  newspaper: { name: "Newspaper", emoji: "📰", bg: "bg-amber-50", cardClass: "border border-amber-900/20 bg-amber-50/50 shadow-none", headerClass: "bg-amber-100/80 border-amber-900/20", textClass: "text-amber-950", accentColor: "#78350f", fontFamily: "'Georgia', 'Times New Roman', serif", borderStyle: "border-amber-900/20", specialEffect: "newspaper" },
+  papyrus: { name: "Papyrus", emoji: "🏺", bg: "bg-amber-100", cardClass: "border border-amber-700/30 bg-gradient-to-b from-amber-100 to-amber-200/60 shadow-inner", headerClass: "bg-amber-200/80 border-amber-700/30", textClass: "text-amber-900", accentColor: "#b45309", fontFamily: "'Palatino Linotype', 'Book Antiqua', serif", borderStyle: "border-amber-700/30", specialEffect: "papyrus" },
+  lionheart: { name: "Lionheart", emoji: "🦁", bg: "bg-red-950", cardClass: "border border-yellow-600/40 bg-red-950/80 shadow-lg shadow-yellow-900/10", headerClass: "bg-red-950/90 border-yellow-600/40", textClass: "text-yellow-100", accentColor: "#ca8a04", fontFamily: "'Palatino Linotype', serif", borderStyle: "border-yellow-600/30", specialEffect: "lionheart" },
+  fifties: { name: "The 1950s", emoji: "🎸", bg: "bg-pink-50", cardClass: "border-2 border-pink-300 bg-white rounded-2xl shadow-md", headerClass: "bg-gradient-to-r from-pink-400 via-sky-300 to-mint-300 border-pink-300", textClass: "text-pink-800", accentColor: "#ec4899", fontFamily: "'Georgia', serif", borderStyle: "border-pink-300", specialEffect: "fifties" },
+};
+
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: Wallet },
   { id: "planner", label: "Planner", icon: ClipboardList },
@@ -88,15 +99,15 @@ function generatePayDates(source, year, month) {
 }
 
 // ─── Reusable UI Components ───────────────────────────────────────────────
-function Card({ children, className = "", darkMode = false }) {
-  return <div className={`${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-100'} rounded-2xl shadow-sm border p-5 ${className}`}>{children}</div>;
+function Card({ children, className = "", darkMode = false, themeCard = "" }) {
+  return <div className={`${themeCard ? themeCard : (darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-100')} rounded-2xl shadow-sm border p-5 ${className}`}>{children}</div>;
 }
 
-function StatCard({ icon: Icon, label, value, sub, color = "indigo", darkMode = false }) {
+function StatCard({ icon: Icon, label, value, sub, color = "indigo", darkMode = false, themeCard = "" }) {
   const bgMap = { indigo: "bg-indigo-50", green: "bg-emerald-50", amber: "bg-amber-50", rose: "bg-rose-50", cyan: "bg-cyan-50" };
   const txtMap = { indigo: "text-indigo-600", green: "text-emerald-600", amber: "text-amber-600", rose: "text-rose-600", cyan: "text-cyan-600" };
   return (
-    <Card darkMode={darkMode}>
+    <Card darkMode={darkMode} themeCard={themeCard}>
       <div className="flex items-start gap-2 sm:gap-3">
         <div className={`p-2 sm:p-2.5 rounded-xl flex-shrink-0 ${bgMap[color]}`}>
           <Icon size={18} className={`sm:w-5 sm:h-5 ${txtMap[color]}`} />
@@ -250,6 +261,11 @@ export default function PaycheckPlanner() {
   // ─── Feature 5: Dark mode ───
   const [darkMode, setDarkMode] = useState(false);
   const dm = (light, dark) => darkMode ? dark : light;
+
+  // ─── Theme system ───
+  const [activeTheme, setActiveTheme] = useState("default");
+  const theme = THEMES[activeTheme] || THEMES.default;
+  const isThemed = activeTheme !== "default";
   
   // ─── Feature 2: Dismissed suggestions ───
   const [dismissedSuggestions, setDismissedSuggestions] = useState({});
@@ -397,7 +413,7 @@ export default function PaycheckPlanner() {
   const [payCalcSettings, setPayCalcSettings] = useState({
     hourlyRate: 15, federalRate: 12, stateRate: 5, ficaRate: 7.65, otRate: 1.5,
     preTaxDeductions: 0, name: "Partner", filingStatus: "single", state: "TX",
-    hoursPerWeek: 40, weeksPerYear: 52, autoTax: true
+    hoursPerWeek: 40, weeksPerYear: 52, autoTax: true, householdIncome: 0
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -633,6 +649,27 @@ export default function PaycheckPlanner() {
     return months;
   }, [incomeSources, extraChecks, bills, debts, goals, incomeOverrides, plannerDismissedByMonth, plannerPaidByMonth, plannerManualByMonth, viewYear]);
 
+  // Previous year data for year-over-year comparison
+  const prevYearData = useMemo(() => {
+    const py = viewYear - 1;
+    const months = [];
+    for (let m = 0; m < 12; m++) {
+      const key = monthKey(py, m);
+      const label = new Date(py, m, 1).toLocaleDateString("en-US", { month: "short" });
+      const paidMap = plannerPaidByMonth[key] || {};
+      const { autoItems, dismissed } = buildPlannerItemsForMonth(py, m, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth);
+      const active = autoItems.filter((i) => !dismissed.includes(i.id) && paidMap[i.id]);
+      const manual = (plannerManualByMonth[key] || []).filter((mi) => mi.paid);
+      const all = [...active, ...manual];
+      const income = all.filter((i) => i.type === "income").reduce((s, i) => s + i.amount, 0);
+      const expenses = all.filter((i) => i.type === "expense").reduce((s, i) => s + i.amount, 0);
+      const savingsExp = all.filter((i) => i.id.startsWith("planner-savings-") && i.type === "expense").reduce((s, i) => s + i.amount, 0);
+      const net = income - expenses;
+      months.push({ month: label, monthIdx: m, income, expenses, savings: savingsExp, net });
+    }
+    return months;
+  }, [incomeSources, extraChecks, bills, debts, goals, incomeOverrides, plannerDismissedByMonth, plannerPaidByMonth, plannerManualByMonth, viewYear]);
+
   // Debt payoff timelines
   const debtTimelines = useMemo(() => {
     return debts.map((d) => {
@@ -702,7 +739,7 @@ export default function PaycheckPlanner() {
     const data = {
       incomeSources, bills, goals, debts, expensesByMonth, extraChecks, incomeOverrides,
       plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth,
-      customCategories, categoryBudgets, darkMode,
+      customCategories, categoryBudgets, darkMode, activeTheme,
       assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
       payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth
     };
@@ -736,6 +773,7 @@ export default function PaycheckPlanner() {
         if (data.customCategories) setCustomCategories(data.customCategories);
         if (data.categoryBudgets) setCategoryBudgets(data.categoryBudgets);
         if (data.darkMode !== undefined) setDarkMode(data.darkMode);
+        if (data.activeTheme && THEMES[data.activeTheme]) setActiveTheme(data.activeTheme);
         if (data.assets) setAssets(data.assets);
         if (data.liabilities) setLiabilities(data.liabilities);
         if (data.netWorthHistory) setNetWorthHistory(data.netWorthHistory);
@@ -1021,20 +1059,20 @@ export default function PaycheckPlanner() {
   // ─── TAX BRACKET CALCULATOR ─────────────────────────────────────────────
   const taxEstimate = useMemo(() => {
     const s = payCalcSettings;
-    const annualGross = s.hourlyRate * s.hoursPerWeek * s.weeksPerYear;
-    const annualPreTax = s.preTaxDeductions * (s.weeksPerYear / (s.weeksPerYear <= 26 ? 1 : 2));
+    const wageGross = s.hourlyRate * s.hoursPerWeek * s.weeksPerYear;
+    const annualGross = s.householdIncome > 0 ? s.householdIncome : wageGross;
+    const annualPreTax = s.preTaxDeductions * 26; // assume biweekly
     const taxableIncome = Math.max(0, annualGross - annualPreTax);
 
-    // 2024 Federal brackets
+    // 2026 projected Federal brackets (inflation-adjusted from 2025)
     const fedBrackets = s.filingStatus === "married" ? [
-      [23200, 0.10], [94300, 0.12], [201050, 0.22], [383900, 0.24], [487450, 0.32], [731200, 0.35], [Infinity, 0.37]
+      [24800, 0.10], [101400, 0.12], [215950, 0.22], [412750, 0.24], [524100, 0.32], [785800, 0.35], [Infinity, 0.37]
     ] : s.filingStatus === "head" ? [
-      [16550, 0.10], [63100, 0.12], [100500, 0.22], [191950, 0.24], [243725, 0.32], [609350, 0.35], [Infinity, 0.37]
+      [17750, 0.10], [67900, 0.12], [108000, 0.22], [206350, 0.24], [262000, 0.32], [654950, 0.35], [Infinity, 0.37]
     ] : [
-      [11600, 0.10], [47150, 0.12], [100525, 0.22], [191950, 0.24], [243725, 0.32], [609350, 0.35], [Infinity, 0.37]
+      [12400, 0.10], [50700, 0.12], [108000, 0.22], [206350, 0.24], [262000, 0.32], [654950, 0.35], [Infinity, 0.37]
     ];
-    // Standard deduction
-    const stdDed = s.filingStatus === "married" ? 29200 : s.filingStatus === "head" ? 21900 : 14600;
+    const stdDed = s.filingStatus === "married" ? 31400 : s.filingStatus === "head" ? 23550 : 15700;
     const fedTaxable = Math.max(0, taxableIncome - stdDed);
     let fedTax = 0, prev = 0;
     for (const [limit, rate] of fedBrackets) {
@@ -1044,20 +1082,20 @@ export default function PaycheckPlanner() {
     }
     const effFedRate = taxableIncome > 0 ? (fedTax / taxableIncome) * 100 : 0;
 
-    // State tax rates (effective/flat approximations)
+    // 2026 State tax rates (flat/effective approximations)
     const stateRates = {
       AL: 4.0, AK: 0, AZ: 2.5, AR: 3.9, CA: 6.0, CO: 4.4, CT: 5.0, DE: 4.8,
-      FL: 0, GA: 5.49, HI: 6.0, ID: 5.8, IL: 4.95, IN: 3.05, IA: 5.7, KS: 5.25,
+      FL: 0, GA: 5.39, HI: 6.0, ID: 5.8, IL: 4.95, IN: 3.05, IA: 5.7, KS: 5.25,
       KY: 4.0, LA: 3.0, ME: 5.8, MD: 4.75, MA: 5.0, MI: 4.25, MN: 5.35,
-      MS: 4.7, MO: 4.8, MT: 5.9, NE: 5.01, NV: 0, NH: 0, NJ: 5.525,
-      NM: 4.9, NY: 5.5, NC: 4.5, ND: 1.95, OH: 3.5, OK: 4.75, OR: 8.75,
+      MS: 4.0, MO: 4.8, MT: 5.9, NE: 5.01, NV: 0, NH: 0, NJ: 5.525,
+      NM: 4.9, NY: 5.5, NC: 4.25, ND: 1.95, OH: 3.5, OK: 4.75, OR: 8.75,
       PA: 3.07, RI: 4.75, SC: 6.4, SD: 0, TN: 0, TX: 0, UT: 4.65,
       VT: 6.0, VA: 5.75, WA: 0, WV: 5.12, WI: 5.3, WY: 0, DC: 6.5
     };
     const stateRate = stateRates[s.state] || 0;
     const ficaRate = 7.65;
 
-    return { annualGross, taxableIncome, fedTax, effFedRate: Math.round(effFedRate * 100) / 100,
+    return { annualGross, wageGross, taxableIncome, fedTax, effFedRate: Math.round(effFedRate * 100) / 100,
       stateRate, ficaRate, stdDed, fedTaxable, marginalBracket: fedBrackets.find(([l]) => fedTaxable <= l)?.[1] * 100 || 37,
       totalEffRate: Math.round((effFedRate + stateRate + ficaRate) * 100) / 100,
       annualNet: taxableIncome - fedTax - (taxableIncome * stateRate / 100) - (taxableIncome * ficaRate / 100)
@@ -1071,15 +1109,41 @@ export default function PaycheckPlanner() {
 
   // ─── RENDER ─────────────────────────────────────────────────────────────
   return (
-    <div className={`min-h-screen ${dm('bg-gradient-to-br from-slate-50 via-gray-50 to-indigo-50', 'bg-slate-950')}`}>
+    <div className={`min-h-screen ${isThemed ? theme.bg : dm('bg-gradient-to-br from-slate-50 via-gray-50 to-indigo-50', 'bg-slate-950')}`} style={isThemed ? { fontFamily: theme.fontFamily } : {}}>
+      {/* Theme special effects */}
+      {activeTheme === 'pipboy' && <style>{`
+        *, ::before, ::after { border-color: rgba(34,197,94,0.2) !important; }
+        .min-h-screen { background: radial-gradient(ellipse at center, #052e16 0%, #000 70%) !important; }
+        input, select, textarea { background: rgba(0,0,0,0.6) !important; color: #4ade80 !important; border-color: rgba(34,197,94,0.4) !important; }
+        input::placeholder, select option { color: rgba(74,222,128,0.5) !important; }
+      `}</style>}
+      {activeTheme === 'comic' && <style>{`
+        .min-h-screen { background: repeating-linear-gradient(45deg, #fef9c3 0px, #fef9c3 20px, #fef08a 20px, #fef08a 40px) !important; }
+      `}</style>}
+      {activeTheme === 'newspaper' && <style>{`
+        .min-h-screen { background-image: url("data:image/svg+xml,%3Csvg width='6' height='6' viewBox='0 0 6 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23d4a574' fill-opacity='0.08'%3E%3Cpath d='M5 0h1L0 5V4zM6 5v1H5z'/%3E%3C/g%3E%3C/svg%3E") !important; }
+      `}</style>}
+      {activeTheme === 'papyrus' && <style>{`
+        .min-h-screen { background: linear-gradient(180deg, #fde68a 0%, #d97706 5%, #fbbf24 10%, #fde68a 50%, #f59e0b 90%, #d97706 100%) !important; background-size: 100% 200% !important; }
+      `}</style>}
+      {activeTheme === 'lionheart' && <style>{`
+        .min-h-screen { background: linear-gradient(180deg, #450a0a 0%, #1c1917 50%, #450a0a 100%) !important; }
+        input, select, textarea { background: rgba(69,10,10,0.8) !important; color: #fef3c7 !important; border-color: rgba(202,138,4,0.3) !important; }
+      `}</style>}
+      {activeTheme === 'fifties' && <style>{`
+        .min-h-screen { background: linear-gradient(135deg, #fce7f3 0%, #e0f2fe 50%, #d1fae5 100%) !important; }
+      `}</style>}
+      {activeTheme === 'lego' && <style>{`
+        .min-h-screen { background: #fef9c3 !important; background-image: radial-gradient(circle, rgba(220,38,38,0.08) 1px, transparent 1px) !important; background-size: 24px 24px !important; }
+      `}</style>}
       {/* Header */}
-      <header className={`${dm('bg-white/80', 'bg-slate-900/80')} backdrop-blur-md ${dm('border-gray-200', 'border-slate-700')} border-b sticky top-0 z-30`}>
+      <header className={`${isThemed ? theme.headerClass : dm('bg-white/80', 'bg-slate-900/80')} backdrop-blur-md ${isThemed ? '' : dm('border-gray-200', 'border-slate-700')} border-b sticky top-0 z-30`}>
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="bg-indigo-600 text-white p-2 rounded-xl"><Wallet size={20} /></div>
+            <div className={`${isThemed ? '' : 'bg-indigo-600'} text-white p-2 rounded-xl`} style={isThemed ? { background: theme.accentColor } : {}}><Wallet size={20} /></div>
             <div>
-              <h1 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')} leading-tight`}>MaverickFinance</h1>
-              <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Your budget, your way</p>
+              <h1 className={`text-lg font-bold ${isThemed ? theme.textClass : dm('text-gray-900', 'text-white')} leading-tight`}>MaverickFinance</h1>
+              <p className={`text-xs ${isThemed ? 'opacity-60 ' + theme.textClass : dm('text-gray-500', 'text-gray-400')}`}>{isThemed ? `${theme.emoji} ${theme.name} Theme` : 'Your budget, your way'}</p>
             </div>
           </div>
           {/* Month Switcher */}
@@ -1111,6 +1175,15 @@ export default function PaycheckPlanner() {
                   <Upload size={14} /> Import Data
                   <input type="file" accept=".json" onChange={handleImport} className="hidden" />
                 </label>
+                <div className={`border-t ${dm('border-gray-100', 'border-slate-700')} my-1 pt-1`}>
+                  <p className={`px-3 py-1 text-[10px] font-semibold uppercase ${dm('text-gray-400', 'text-gray-500')}`}>Themes</p>
+                  {Object.entries(THEMES).map(([key, t]) => (
+                    <button key={key} onClick={() => setActiveTheme(key)}
+                      className={`w-full text-left px-3 py-1.5 rounded flex items-center gap-2 text-xs transition ${activeTheme === key ? dm('bg-indigo-50 text-indigo-700 font-semibold', 'bg-indigo-900/50 text-indigo-300 font-semibold') : dm('hover:bg-gray-100 text-gray-600', 'hover:bg-slate-700 text-slate-300')}`}>
+                      <span>{t.emoji}</span> {t.name} {activeTheme === key && '✓'}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -1187,7 +1260,7 @@ export default function PaycheckPlanner() {
               ) : null;
             })()}
                         {/* Income Sources + Paychecks for this month */}
-            <Card darkMode={darkMode}>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h2 className="text-sm font-semibold text-gray-700">Paychecks — {monthLabel(viewYear, viewMonth)}</h2>
@@ -1336,14 +1409,14 @@ export default function PaycheckPlanner() {
 
             {/* Stat Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard darkMode={darkMode} icon={DollarSign} label="Monthly Income" value={fmt(monthlyIncome)} sub={`${monthPaychecks.length} check${monthPaychecks.length !== 1 ? "s" : ""} · avg ${fmt(avgPaycheck)}`} color="green" />
-              <StatCard darkMode={darkMode} icon={Calendar} label="Total Outgoing" value={fmt(totalAllExpenses)} sub={`Bills · Debt · Savings · Spending`} color="amber" />
-              <StatCard darkMode={darkMode} icon={PiggyBank} label="Savings" value={fmt(totalSavingsContrib)} sub={`${goals.length} goals (incl. in total)`} color="cyan" />
-              <StatCard darkMode={darkMode} icon={Wallet} label="Remaining" value={fmt(remainingBudget)} sub={remainingBudget < 0 ? "Over budget!" : "After all obligations"} color={remainingBudget < 0 ? "rose" : "indigo"} />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={DollarSign} label="Monthly Income" value={fmt(monthlyIncome)} sub={`${monthPaychecks.length} check${monthPaychecks.length !== 1 ? "s" : ""} · avg ${fmt(avgPaycheck)}`} color="green" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={Calendar} label="Total Outgoing" value={fmt(totalAllExpenses)} sub={`Bills · Debt · Savings · Spending`} color="amber" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={PiggyBank} label="Savings" value={fmt(totalSavingsContrib)} sub={`${goals.length} goals (incl. in total)`} color="cyan" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={Wallet} label="Remaining" value={fmt(remainingBudget)} sub={remainingBudget < 0 ? "Over budget!" : "After all obligations"} color={remainingBudget < 0 ? "rose" : "indigo"} />
             </div>
 
             {/* Per-Paycheck Allocation Bar */}
-            <Card darkMode={darkMode}>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Avg Per-Paycheck Allocation</h2>
               <div className="space-y-2.5">
                 {[
@@ -1363,7 +1436,7 @@ export default function PaycheckPlanner() {
 
             {/* Budget Pie (clickable) + Expense Bar */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <h2 className="text-sm font-semibold text-gray-700 mb-1">Monthly Budget Breakdown</h2>
                 <p className="text-xs text-gray-400 mb-3">Click a slice to see expenses</p>
                 {(() => {
@@ -1436,7 +1509,7 @@ export default function PaycheckPlanner() {
                   );
                 })()}
               </Card>
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <h2 className="text-sm font-semibold text-gray-700 mb-3">Spending by Category</h2>
                 {expByCategory.length === 0 ? <EmptyState icon={DollarSign} message="No expenses logged this month" /> : (
                   <ResponsiveContainer width="100%" height={240}>
@@ -1454,7 +1527,7 @@ export default function PaycheckPlanner() {
             </div>
 
             {/* Upcoming Bills Calendar */}
-            <Card darkMode={darkMode}>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
               <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
                 <Bell size={15} className="text-amber-500" /> Upcoming Bills — {monthLabel(viewYear, viewMonth)}
               </h2>
@@ -1499,7 +1572,7 @@ export default function PaycheckPlanner() {
             </Card>
 
             {/* Cash Flow Timeline */}
-            <Card darkMode={darkMode}>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
               <h2 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-2">
                 <TrendingUp size={15} className="text-emerald-500" /> Cash Flow Timeline
               </h2>
@@ -1546,7 +1619,7 @@ export default function PaycheckPlanner() {
             </Card>
 
             {/* Income vs Spending Trends */}
-            <Card darkMode={darkMode}>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
               <h2 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-2">
                 <TrendingUp size={15} className="text-indigo-500" /> Income vs. Spending Trends
               </h2>
@@ -1616,7 +1689,7 @@ export default function PaycheckPlanner() {
             )}
 
             {/* Header balance card */}
-            <Card darkMode={darkMode} className="bg-gradient-to-br from-indigo-600 to-indigo-700 border-0 text-white">
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="bg-gradient-to-br from-indigo-600 to-indigo-700 border-0 text-white">
               <div className="text-center">
                 <p className="text-indigo-200 text-xs font-medium uppercase tracking-wider mb-1">
                   {monthLabel(viewYear, viewMonth)} Balance
@@ -1657,7 +1730,7 @@ export default function PaycheckPlanner() {
 
             {/* Add item form */}
             {plannerDraft && (
-              <Card darkMode={darkMode} className={`${plannerDraft.type === "income" ? "border-emerald-200 bg-emerald-50/30" : "border-rose-200 bg-rose-50/30"}`}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className={`${plannerDraft.type === "income" ? "border-emerald-200 bg-emerald-50/30" : "border-rose-200 bg-rose-50/30"}`}>
                 <div className="flex gap-3">
                   <input placeholder={plannerDraft.type === "income" ? "Income label" : "Expense label"}
                     value={plannerDraft.label} onChange={(e) => setPlannerDraft({ ...plannerDraft, label: e.target.value })}
@@ -1824,7 +1897,7 @@ export default function PaycheckPlanner() {
 
             {/* Bottom summary */}
             {plannerItems.length > 0 && (
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-gray-500">Total Income</span>
@@ -1858,7 +1931,7 @@ export default function PaycheckPlanner() {
 
             {/* Progress bar: paid vs unpaid */}
             {plannerTotalExpenses > 0 && (
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">Payment Progress</h3>
                 <div className="w-full h-4 rounded-full bg-gray-100 overflow-hidden flex">
                   <div className="h-full bg-emerald-500 transition-all duration-500 rounded-l-full"
@@ -1887,7 +1960,7 @@ export default function PaycheckPlanner() {
             </div>
 
             {billDraft && (
-              <Card darkMode={darkMode} className="border-indigo-200 bg-indigo-50/30">
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="border-indigo-200 bg-indigo-50/30">
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <input placeholder="Bill name" value={billDraft.name} onChange={(e) => setBillDraft({ ...billDraft, name: e.target.value })}
                     className="col-span-2 sm:col-span-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
@@ -1945,7 +2018,7 @@ export default function PaycheckPlanner() {
               </Card>
             ))}
 
-            <Card darkMode={darkMode} className="bg-amber-50/50 border-amber-200">
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="bg-amber-50/50 border-amber-200">
               <div className="flex items-start gap-2.5">
                 <AlertCircle size={18} className="text-amber-500 mt-0.5 flex-shrink-0" />
                 <div>
@@ -1972,7 +2045,7 @@ export default function PaycheckPlanner() {
             </div>
 
             {goalDraft && (
-              <Card darkMode={darkMode} className="border-indigo-200 bg-indigo-50/30">
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="border-indigo-200 bg-indigo-50/30">
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <input placeholder="Goal name" value={goalDraft.name} onChange={(e) => setGoalDraft({ ...goalDraft, name: e.target.value })}
                     className="col-span-2 sm:col-span-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
@@ -2014,7 +2087,7 @@ export default function PaycheckPlanner() {
                       actions={[
                         { label: "Delete", icon: <Trash2 size={16} />, onClick: () => removeGoal(g.id), className: "bg-rose-500" },
                       ]}>
-                    <Card darkMode={darkMode}>
+                    <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                       <div className="flex items-start justify-between mb-2">
                         <div>
                           <h3 className={`font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{g.name}</h3>
@@ -2117,7 +2190,7 @@ export default function PaycheckPlanner() {
               </div>
             )}
 
-            <Card darkMode={darkMode}>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
               <h3 className="text-sm font-semibold text-gray-700 mb-3">Savings Projection</h3>
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={goalTimelines.map((g) => ({ name: g.name, Saved: g.saved, Remaining: Math.max(g.target - g.saved, 0) }))}>
@@ -2145,7 +2218,7 @@ export default function PaycheckPlanner() {
             </div>
 
             {/* Feature 3: Manage Categories */}
-            <Card darkMode={darkMode} className={`border-l-4 border-indigo-500 mb-4`}>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className={`border-l-4 border-indigo-500 mb-4`}>
               <div className="flex items-center justify-between mb-3">
                 <h3 className={`text-sm font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>Manage Categories</h3>
                 <button onClick={() => setNewCatDraft({ name: "", color: COLORS[0] })} className="p-1 text-indigo-600 hover:bg-indigo-50 rounded"><Plus size={16} /></button>
@@ -2161,7 +2234,7 @@ export default function PaycheckPlanner() {
             </Card>
 
             {newCatDraft && (
-              <Card darkMode={darkMode} className="border-indigo-200 mb-4">
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="border-indigo-200 mb-4">
                 <div className="space-y-3">
                   <h4 className={`text-sm font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>Add New Category</h4>
                   <div className="flex gap-3">
@@ -2203,7 +2276,7 @@ export default function PaycheckPlanner() {
             )}
 
             {/* Budget Targets Card */}
-            <Card darkMode={darkMode} className={`border-l-4 ${dm('border-purple-500', 'border-purple-400')} mb-4`}>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className={`border-l-4 ${dm('border-purple-500', 'border-purple-400')} mb-4`}>
               <h3 className={`text-sm font-semibold mb-3 ${dm('text-gray-700', 'text-gray-200')}`}>Budget Targets</h3>
 
               {Object.entries(categoryBudgets).length > 0 ? (
@@ -2330,7 +2403,7 @@ export default function PaycheckPlanner() {
             )}
 
             {expDraft && (
-              <Card darkMode={darkMode} className="border-indigo-200 bg-indigo-50/30">
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="border-indigo-200 bg-indigo-50/30">
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <input placeholder="Description" value={expDraft.description} onChange={(e) => setExpDraft({ ...expDraft, description: e.target.value })}
@@ -2375,14 +2448,14 @@ export default function PaycheckPlanner() {
 
             {/* Summary cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard darkMode={darkMode} icon={Calendar} label="Recurring Bills" value={fmt(totalBills)} sub={`${bills.length} bills`} color="amber" />
-              <StatCard darkMode={darkMode} icon={CreditCard} label="Debt Payments" value={fmt(totalDebtPayments)} sub={`${debts.length} debts`} color="rose" />
-              <StatCard darkMode={darkMode} icon={PiggyBank} label="Savings" value={fmt(totalSavingsContrib)} sub={`${goals.length} goals`} color="cyan" />
-              <StatCard darkMode={darkMode} icon={DollarSign} label="Other Spending" value={fmt(totalManualExpenses)} sub={`${manualExpenses.length} items`} color="indigo" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={Calendar} label="Recurring Bills" value={fmt(totalBills)} sub={`${bills.length} bills`} color="amber" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={CreditCard} label="Debt Payments" value={fmt(totalDebtPayments)} sub={`${debts.length} debts`} color="rose" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={PiggyBank} label="Savings" value={fmt(totalSavingsContrib)} sub={`${goals.length} goals`} color="cyan" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={DollarSign} label="Other Spending" value={fmt(totalManualExpenses)} sub={`${manualExpenses.length} items`} color="indigo" />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <Card darkMode={darkMode} className="lg:col-span-1">
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="lg:col-span-1">
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">By Category</h3>
                 {expByCategory.length === 0 ? <EmptyState icon={DollarSign} message="No expenses this month" /> : (
                   <>
@@ -2407,7 +2480,7 @@ export default function PaycheckPlanner() {
                 )}
               </Card>
 
-              <Card darkMode={darkMode} className="lg:col-span-2">
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="lg:col-span-2">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">All Expenses This Month</h3>
                 {allMonthExpenses.length === 0 ? <EmptyState icon={DollarSign} message="No expenses this month" /> : (
                   <div className="space-y-1.5 max-h-[28rem] overflow-y-auto">
@@ -2483,7 +2556,7 @@ export default function PaycheckPlanner() {
 
             {/* Merchant Tracking */}
             {allMonthExpenses.filter(e => !e.recurring).length > 0 && (
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Top Merchants</h3>
                 <div className="space-y-2">
                   {(() => {
@@ -2528,7 +2601,7 @@ export default function PaycheckPlanner() {
             </div>
 
             {debtDraft && (
-              <Card darkMode={darkMode} className="border-indigo-200 bg-indigo-50/30">
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="border-indigo-200 bg-indigo-50/30">
                 <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
                   <input placeholder="Debt name" value={debtDraft.name} onChange={(e) => setDebtDraft({ ...debtDraft, name: e.target.value })}
                     className="col-span-2 sm:col-span-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
@@ -2562,9 +2635,9 @@ export default function PaycheckPlanner() {
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <StatCard darkMode={darkMode} icon={CreditCard} label="Total Debt" value={fmt(totalDebtBalance)} color="rose" />
-              <StatCard darkMode={darkMode} icon={DollarSign} label="Monthly Payments" value={fmt(totalDebtPayments)} sub="Min + extra" color="amber" />
-              <StatCard darkMode={darkMode} icon={TrendingUp} label="Debt-to-Income" value={`${pct(totalDebtPayments, monthlyIncome)}%`} sub={monthlyIncome > 0 && pct(totalDebtPayments, monthlyIncome) > 36 ? "Above recommended 36%" : "Healthy ratio"} color={monthlyIncome > 0 && pct(totalDebtPayments, monthlyIncome) > 36 ? "rose" : "green"} />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={CreditCard} label="Total Debt" value={fmt(totalDebtBalance)} color="rose" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={DollarSign} label="Monthly Payments" value={fmt(totalDebtPayments)} sub="Min + extra" color="amber" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={TrendingUp} label="Debt-to-Income" value={`${pct(totalDebtPayments, monthlyIncome)}%`} sub={monthlyIncome > 0 && pct(totalDebtPayments, monthlyIncome) > 36 ? "Above recommended 36%" : "Healthy ratio"} color={monthlyIncome > 0 && pct(totalDebtPayments, monthlyIncome) > 36 ? "rose" : "green"} />
             </div>
 
             {debtTimelines.length === 0 ? <EmptyState icon={CreditCard} message="No debts tracked — add one!" /> : (
@@ -2574,7 +2647,7 @@ export default function PaycheckPlanner() {
                     isOpen={swipedItemId === `debt-${d.id}`}
                     onToggle={(open) => setSwipedItemId(open ? `debt-${d.id}` : null)}
                     actions={[{ label: "Delete", icon: <Trash2 size={16} />, onClick: () => removeDebt(d.id), className: "bg-rose-500" }]}>
-                  <Card darkMode={darkMode}>
+                  <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                     <div className="flex items-start justify-between">
                       <div>
                         <h3 className={`font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{d.name}</h3>
@@ -2609,7 +2682,7 @@ export default function PaycheckPlanner() {
             )}
 
             {debtTimelines.length > 0 && (
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">Debt Comparison</h3>
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={debtTimelines.map((d) => ({ name: d.name, Balance: d.balance, Interest: d.totalInterest === Infinity ? 0 : Math.round(d.totalInterest) }))}>
@@ -2626,7 +2699,7 @@ export default function PaycheckPlanner() {
 
             {/* Snowball vs Avalanche */}
             {debtStrategies && (
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Snowball vs Avalanche</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div className={`p-4 rounded-xl border-2 ${dm('border-cyan-200 bg-cyan-50/50', 'border-cyan-700 bg-cyan-950/20')}`}>
@@ -2656,7 +2729,7 @@ export default function PaycheckPlanner() {
 
             {/* Extra Payment Simulator */}
             {debts.length > 0 && (
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Extra Payment Simulator</h3>
                 <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')} mb-3`}>See how extra monthly payments affect your payoff timeline.</p>
                 <div className="flex items-center gap-3 mb-4">
@@ -2722,14 +2795,14 @@ export default function PaycheckPlanner() {
 
             {/* Summary cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <StatCard darkMode={darkMode} icon={TrendingUp} label="Total Assets" value={fmt(totalAssets)} color="green" />
-              <StatCard darkMode={darkMode} icon={TrendingDown} label="Total Liabilities" value={fmt(totalLiabilities)} color="rose" />
-              <StatCard darkMode={darkMode} icon={Landmark} label="Net Worth" value={fmt(netWorth)} sub={netWorth >= 0 ? "Positive" : "Negative"} color={netWorth >= 0 ? "green" : "rose"} />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={TrendingUp} label="Total Assets" value={fmt(totalAssets)} color="green" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={TrendingDown} label="Total Liabilities" value={fmt(totalLiabilities)} color="rose" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={Landmark} label="Net Worth" value={fmt(netWorth)} sub={netWorth >= 0 ? "Positive" : "Negative"} color={netWorth >= 0 ? "green" : "rose"} />
 
             </div>
 
             {/* Net Worth bar visualization */}
-            <Card darkMode={darkMode}>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
               <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Assets vs Liabilities</h3>
               <div className="space-y-2">
                 <div>
@@ -2755,7 +2828,7 @@ export default function PaycheckPlanner() {
 
             {/* Asset Allocation Pie Chart */}
             {assets.length > 0 && (
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Asset Allocation</h3>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-center">
                   <ResponsiveContainer width="100%" height={200}>
@@ -2794,7 +2867,7 @@ export default function PaycheckPlanner() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* ── Assets ── */}
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Assets</h3>
                   <button onClick={() => setAssetDraft({ name: "", category: "Cash", balance: "" })}
@@ -2855,7 +2928,7 @@ export default function PaycheckPlanner() {
               </Card>
 
               {/* ── Liabilities ── */}
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Liabilities</h3>
                   <button onClick={() => setLiabilityDraft({ name: "", category: "Other", balance: "" })}
@@ -2927,7 +3000,7 @@ export default function PaycheckPlanner() {
             </div>
 
             {/* ── Trend Chart ── */}
-            <Card darkMode={darkMode}>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
               <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Net Worth Over Time</h3>
               {netWorthHistory.length < 2 ? (
                 <div className={`text-center py-8 ${dm('text-gray-400', 'text-gray-500')}`}>
@@ -2958,7 +3031,7 @@ export default function PaycheckPlanner() {
 
             {/* ── Balance History ── */}
             {Object.keys(balanceHistory).length > 0 && (
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Account Balance History</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
@@ -3003,7 +3076,7 @@ export default function PaycheckPlanner() {
             )}
 
             {/* ── Milestones ── */}
-            <Card darkMode={darkMode}>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
               <div className="flex items-center justify-between mb-3">
                 <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Milestones</h3>
                 <button onClick={() => setMilestoneDraft({ label: "", target: "" })}
@@ -3075,7 +3148,7 @@ export default function PaycheckPlanner() {
             </div>
 
             {/* Pay & Tax Profile */}
-            <Card darkMode={darkMode}>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
               <div className="flex items-center justify-between mb-3">
                 <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Pay & Tax Profile</h3>
                 <button onClick={() => setPayCalcSettings({ ...payCalcSettings, autoTax: !payCalcSettings.autoTax })}
@@ -3144,6 +3217,25 @@ export default function PaycheckPlanner() {
                 </div>
               </div>
 
+              {/* Row 3: Household Income */}
+              {payCalcSettings.autoTax && (
+                <div className="mt-3">
+                  <div className={`p-3 rounded-xl border ${dm('bg-amber-50/50 border-amber-200', 'bg-amber-950/20 border-amber-800')}`}>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <DollarSign size={14} className={dm('text-amber-600', 'text-amber-400')} />
+                      <p className={`text-xs font-semibold ${dm('text-amber-700', 'text-amber-300')}`}>Total Household Gross Income</p>
+                    </div>
+                    <p className={`text-[10px] mb-2 ${dm('text-amber-600', 'text-amber-500')}`}>Enter total annual gross income for all earners to get the most accurate federal tax bracket. Leave at $0 to use your hourly wage estimate ({fmt(taxEstimate.wageGross)}/yr).</p>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                      <input type="number" value={payCalcSettings.householdIncome || ''} onFocus={(e) => e.target.select()} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, householdIncome: e.target.value === '' ? 0 : +e.target.value })}
+                        placeholder="0 = use hourly wage estimate"
+                        className={`w-full sm:w-64 pl-7 pr-3 py-1.5 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-amber-500`} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Tax Rate Summary / Override */}
               <div className={`mt-4 p-3 rounded-xl border ${dm('bg-indigo-50/50 border-indigo-200', 'bg-indigo-950/30 border-indigo-800')}`}>
                 <div className="flex items-center justify-between mb-2">
@@ -3194,7 +3286,7 @@ export default function PaycheckPlanner() {
 
             {/* Log Hours Form */}
             {payCalcDraft && (
-              <Card darkMode={darkMode} className={dm('border-indigo-200 bg-indigo-50/30', 'border-indigo-800 bg-indigo-950/30')}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className={dm('border-indigo-200 bg-indigo-50/30', 'border-indigo-800 bg-indigo-950/30')}>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div>
                     <label className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Regular Hours</label>
@@ -3254,7 +3346,7 @@ export default function PaycheckPlanner() {
                       isOpen={swipedItemId === `pay-${entry.id}`}
                       onToggle={(open) => setSwipedItemId(open ? `pay-${entry.id}` : null)}
                       actions={[{ label: "Delete", icon: <Trash2 size={16} />, onClick: () => setPayCalcEntries(payCalcEntries.filter(e => e.id !== entry.id)), className: "bg-rose-500" }]}>
-                    <Card darkMode={darkMode}>
+                    <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                       <div className="flex items-start justify-between mb-3">
                         <div>
                           <p className={`text-sm font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>
@@ -3289,7 +3381,7 @@ export default function PaycheckPlanner() {
                   );
                 })}
                 {/* Summary */}
-                <Card darkMode={darkMode} className="bg-gradient-to-br from-indigo-600 to-indigo-700 border-0 text-white">
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="bg-gradient-to-br from-indigo-600 to-indigo-700 border-0 text-white">
                   <h3 className="text-sm font-semibold text-indigo-200 mb-2">Period Summary ({payCalcEntries.length} entries)</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
                     <div>
@@ -3362,7 +3454,7 @@ export default function PaycheckPlanner() {
               return (
                 <>
                   {/* Score Overview */}
-                  <Card darkMode={darkMode} className="text-center">
+                  <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="text-center">
                     <div className="relative inline-flex items-center justify-center w-36 h-36 mx-auto mb-3">
                       <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
                         <circle cx="50" cy="50" r="42" fill="none" stroke={darkMode ? '#1e293b' : '#f1f5f9'} strokeWidth="8" />
@@ -3400,7 +3492,7 @@ export default function PaycheckPlanner() {
                   </div>
 
                   {/* Tips */}
-                  <Card darkMode={darkMode}>
+                  <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                     <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3 flex items-center gap-2`}><Shield size={16} className="text-indigo-500" /> Improvement Tips</h3>
                     <div className="space-y-2">
                       {scores.filter(sc => sc.score < sc.max * 0.75).map(sc => (
@@ -3436,7 +3528,7 @@ export default function PaycheckPlanner() {
             {monthlyIncome === 0 && totalAllExpenses === 0 ? (
               <EmptyState icon={GitBranch} message="Add income and expenses to see your money flow" />
             ) : (
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <div className="overflow-x-auto">
                   {(() => {
                     // Build flow data
@@ -3542,7 +3634,7 @@ export default function PaycheckPlanner() {
 
             {/* Flow Summary Table */}
             {monthlyIncome > 0 && (
-              <Card darkMode={darkMode}>
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Flow Breakdown</h3>
                 <div className="space-y-2">
                   <div className={`flex items-center justify-between py-2.5 px-3 rounded-lg ${dm('bg-emerald-50', 'bg-emerald-950/20')}`}>
@@ -3598,28 +3690,73 @@ export default function PaycheckPlanner() {
         )}
 
         {/* ═══════ YEAR TAB ═══════ */}
-        {tab === "yearly" && (
+        {tab === "yearly" && (() => {
+          const curTotals = { income: yearData.reduce((s, m) => s + m.income, 0), expenses: yearData.reduce((s, m) => s + m.expenses, 0), savings: yearData.reduce((s, m) => s + m.savings, 0), net: yearData.reduce((s, m) => s + m.net, 0) };
+          const prevTotals = { income: prevYearData.reduce((s, m) => s + m.income, 0), expenses: prevYearData.reduce((s, m) => s + m.expenses, 0), savings: prevYearData.reduce((s, m) => s + m.savings, 0), net: prevYearData.reduce((s, m) => s + m.net, 0) };
+          const yoyPct = (cur, prev) => prev === 0 ? (cur > 0 ? 100 : 0) : Math.round(((cur - prev) / Math.abs(prev)) * 100);
+          const yoyArrow = (cur, prev, invert) => { const d = cur - prev; if (d === 0) return null; const up = d > 0; const good = invert ? !up : up; return <span className={`text-[10px] font-bold ${good ? 'text-emerald-500' : 'text-rose-500'}`}>{up ? '▲' : '▼'} {Math.abs(yoyPct(cur, prev))}%</span>; };
+          const hasPrevData = prevTotals.income > 0 || prevTotals.expenses > 0;
+          return (
           <>
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-gray-900">{viewYear} at a Glance</h2>
+              <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')}`}>{viewYear} at a Glance</h2>
               <div className="flex items-center gap-2">
-                <button onClick={() => setViewYear(viewYear - 1)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition"><ChevronLeft size={18} /></button>
-                <span className="text-sm font-semibold text-gray-700 px-2">{viewYear}</span>
-                <button onClick={() => setViewYear(viewYear + 1)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition"><ChevronRight size={18} /></button>
+                <button onClick={() => setViewYear(viewYear - 1)} className={`p-1.5 rounded-lg ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')} transition`}><ChevronLeft size={18} /></button>
+                <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-300')} px-2`}>{viewYear}</span>
+                <button onClick={() => setViewYear(viewYear + 1)} className={`p-1.5 rounded-lg ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')} transition`}><ChevronRight size={18} /></button>
               </div>
             </div>
 
             {/* Annual summary */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard darkMode={darkMode} icon={DollarSign} label="Annual Income" value={fmt(yearData.reduce((s, m) => s + m.income, 0))} sub={`${viewYear}`} color="green" />
-              <StatCard darkMode={darkMode} icon={Calendar} label="Annual Expenses" value={fmt(yearData.reduce((s, m) => s + m.expenses, 0))} color="amber" />
-              <StatCard darkMode={darkMode} icon={PiggyBank} label="Annual Savings" value={fmt(yearData.reduce((s, m) => s + m.savings, 0))} color="cyan" />
-              <StatCard darkMode={darkMode} icon={Wallet} label="Annual Net" value={fmt(yearData.reduce((s, m) => s + m.net, 0))} color={yearData.reduce((s, m) => s + m.net, 0) >= 0 ? "indigo" : "rose"} />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={DollarSign} label="Annual Income" value={fmt(curTotals.income)} sub={hasPrevData ? `vs ${fmt(prevTotals.income)} in ${viewYear - 1}` : `${viewYear}`} color="green" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={Calendar} label="Annual Expenses" value={fmt(curTotals.expenses)} sub={hasPrevData ? `vs ${fmt(prevTotals.expenses)} in ${viewYear - 1}` : undefined} color="amber" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={PiggyBank} label="Annual Savings" value={fmt(curTotals.savings)} sub={hasPrevData ? `vs ${fmt(prevTotals.savings)} in ${viewYear - 1}` : undefined} color="cyan" />
+              <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={Wallet} label="Annual Net" value={fmt(curTotals.net)} sub={hasPrevData ? `vs ${fmt(prevTotals.net)} in ${viewYear - 1}` : undefined} color={curTotals.net >= 0 ? "indigo" : "rose"} />
             </div>
 
+            {/* Year-over-Year Comparison */}
+            {hasPrevData && (
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                <div className="flex items-center gap-2 mb-4">
+                  <GitBranch size={16} className={dm('text-indigo-600', 'text-indigo-400')} />
+                  <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Year-over-Year: {viewYear - 1} vs {viewYear}</h3>
+                </div>
+                {/* Summary cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                  {[
+                    { label: "Income", cur: curTotals.income, prev: prevTotals.income, color: dm('bg-emerald-50 border-emerald-200', 'bg-emerald-950/20 border-emerald-800'), txt: dm('text-emerald-700', 'text-emerald-400'), invert: false },
+                    { label: "Expenses", cur: curTotals.expenses, prev: prevTotals.expenses, color: dm('bg-rose-50 border-rose-200', 'bg-rose-950/20 border-rose-800'), txt: dm('text-rose-700', 'text-rose-400'), invert: true },
+                    { label: "Savings", cur: curTotals.savings, prev: prevTotals.savings, color: dm('bg-cyan-50 border-cyan-200', 'bg-cyan-950/20 border-cyan-800'), txt: dm('text-cyan-700', 'text-cyan-400'), invert: false },
+                    { label: "Net", cur: curTotals.net, prev: prevTotals.net, color: dm('bg-indigo-50 border-indigo-200', 'bg-indigo-950/20 border-indigo-800'), txt: dm('text-indigo-700', 'text-indigo-400'), invert: false }
+                  ].map((item) => (
+                    <div key={item.label} className={`p-3 rounded-xl border ${item.color}`}>
+                      <p className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} uppercase`}>{item.label}</p>
+                      <div className="flex items-baseline gap-1.5 mt-1">
+                        <span className={`text-sm font-bold ${item.txt}`}>{fmt(item.cur - item.prev)}</span>
+                        {yoyArrow(item.cur, item.prev, item.invert)}
+                      </div>
+                      <p className={`text-[10px] mt-0.5 ${dm('text-gray-400', 'text-gray-500')}`}>{fmt(item.prev)} → {fmt(item.cur)}</p>
+                    </div>
+                  ))}
+                </div>
+                {/* Month-by-month YoY comparison chart */}
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={yearData.map((m, i) => ({ month: m.month, [`${viewYear}`]: m.net, [`${viewYear - 1}`]: prevYearData[i]?.net || 0 }))} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
+                    <XAxis dataKey="month" fontSize={11} tickLine={false} />
+                    <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`} fontSize={10} tickLine={false} axisLine={false} />
+                    <Tooltip formatter={(v) => fmt(v)} />
+                    <Legend />
+                    <Bar dataKey={`${viewYear - 1}`} name={`${viewYear - 1} Net`} fill={dm('#94a3b8', '#475569')} radius={[3, 3, 0, 0]} />
+                    <Bar dataKey={`${viewYear}`} name={`${viewYear} Net`} fill="#6366f1" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card>
+            )}
+
             {/* Monthly comparison chart */}
-            <Card darkMode={darkMode}>
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Income vs. Expenses by Month</h3>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Income vs. Expenses by Month</h3>
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={yearData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
                   <XAxis dataKey="month" fontSize={12} tickLine={false} />
@@ -3633,8 +3770,8 @@ export default function PaycheckPlanner() {
             </Card>
 
             {/* Net cash flow line */}
-            <Card darkMode={darkMode}>
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Net Cash Flow</h3>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Net Cash Flow</h3>
               <ResponsiveContainer width="100%" height={200}>
                 <AreaChart data={yearData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
                   <defs>
@@ -3652,51 +3789,57 @@ export default function PaycheckPlanner() {
             </Card>
 
             {/* Month-by-month table */}
-            <Card darkMode={darkMode}>
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Monthly Breakdown</h3>
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Monthly Breakdown</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 px-2 text-xs font-medium text-gray-400 uppercase">Month</th>
-                      <th className="text-right py-2 px-2 text-xs font-medium text-gray-400 uppercase">Income</th>
-                      <th className="text-right py-2 px-2 text-xs font-medium text-gray-400 uppercase">Expenses</th>
-                      <th className="text-right py-2 px-2 text-xs font-medium text-gray-400 uppercase">Savings</th>
-                      <th className="text-right py-2 px-2 text-xs font-medium text-gray-400 uppercase">Net</th>
+                    <tr className={`border-b ${dm('border-gray-200', 'border-slate-700')}`}>
+                      <th className={`text-left py-2 px-2 text-xs font-medium ${dm('text-gray-400', 'text-gray-500')} uppercase`}>Month</th>
+                      <th className={`text-right py-2 px-2 text-xs font-medium ${dm('text-gray-400', 'text-gray-500')} uppercase`}>Income</th>
+                      <th className={`text-right py-2 px-2 text-xs font-medium ${dm('text-gray-400', 'text-gray-500')} uppercase`}>Expenses</th>
+                      <th className={`text-right py-2 px-2 text-xs font-medium ${dm('text-gray-400', 'text-gray-500')} uppercase`}>Savings</th>
+                      <th className={`text-right py-2 px-2 text-xs font-medium ${dm('text-gray-400', 'text-gray-500')} uppercase`}>Net</th>
+                      {hasPrevData && <th className={`text-right py-2 px-2 text-xs font-medium ${dm('text-gray-400', 'text-gray-500')} uppercase`}>vs {viewYear - 1}</th>}
                     </tr>
                   </thead>
                   <tbody>
-                    {yearData.map((m) => {
+                    {yearData.map((m, i) => {
                       const isCurrent = m.monthIdx === viewMonth && viewYear === today.getFullYear();
+                      const prevNet = prevYearData[i]?.net || 0;
+                      const netDiff = m.net - prevNet;
                       return (
-                        <tr key={m.month} className={`border-b border-gray-50 ${isCurrent ? "bg-indigo-50/50" : "hover:bg-gray-50"} cursor-pointer transition`}
+                        <tr key={m.month} className={`border-b ${dm('border-gray-50', 'border-slate-800')} ${isCurrent ? dm("bg-indigo-50/50", "bg-indigo-950/30") : dm("hover:bg-gray-50", "hover:bg-slate-800/50")} cursor-pointer transition`}
                           onClick={() => { setViewMonth(m.monthIdx); setTab("dashboard"); }}>
-                          <td className={`py-2.5 px-2 font-medium ${isCurrent ? "text-indigo-700" : "text-gray-700"}`}>
+                          <td className={`py-2.5 px-2 font-medium ${isCurrent ? "text-indigo-600" : dm("text-gray-700", "text-gray-300")}`}>
                             {m.month}{isCurrent ? " ●" : ""}
                           </td>
                           <td className="py-2.5 px-2 text-right text-emerald-600 font-medium">{fmt(m.income)}</td>
                           <td className="py-2.5 px-2 text-right text-rose-500">{fmt(m.expenses)}</td>
                           <td className="py-2.5 px-2 text-right text-cyan-600">{fmt(m.savings)}</td>
                           <td className={`py-2.5 px-2 text-right font-bold ${m.net >= 0 ? "text-indigo-600" : "text-rose-600"}`}>{fmt(m.net)}</td>
+                          {hasPrevData && <td className={`py-2.5 px-2 text-right text-xs font-medium ${netDiff >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{netDiff >= 0 ? '+' : ''}{fmt(netDiff)}</td>}
                         </tr>
                       );
                     })}
                   </tbody>
                   <tfoot>
-                    <tr className="border-t-2 border-gray-200">
-                      <td className="py-2.5 px-2 font-bold text-gray-800">Total</td>
-                      <td className="py-2.5 px-2 text-right font-bold text-emerald-600">{fmt(yearData.reduce((s, m) => s + m.income, 0))}</td>
-                      <td className="py-2.5 px-2 text-right font-bold text-rose-500">{fmt(yearData.reduce((s, m) => s + m.expenses, 0))}</td>
-                      <td className="py-2.5 px-2 text-right font-bold text-cyan-600">{fmt(yearData.reduce((s, m) => s + m.savings, 0))}</td>
-                      <td className={`py-2.5 px-2 text-right font-bold ${yearData.reduce((s, m) => s + m.net, 0) >= 0 ? "text-indigo-600" : "text-rose-600"}`}>{fmt(yearData.reduce((s, m) => s + m.net, 0))}</td>
+                    <tr className={`border-t-2 ${dm('border-gray-200', 'border-slate-700')}`}>
+                      <td className={`py-2.5 px-2 font-bold ${dm('text-gray-800', 'text-gray-200')}`}>Total</td>
+                      <td className="py-2.5 px-2 text-right font-bold text-emerald-600">{fmt(curTotals.income)}</td>
+                      <td className="py-2.5 px-2 text-right font-bold text-rose-500">{fmt(curTotals.expenses)}</td>
+                      <td className="py-2.5 px-2 text-right font-bold text-cyan-600">{fmt(curTotals.savings)}</td>
+                      <td className={`py-2.5 px-2 text-right font-bold ${curTotals.net >= 0 ? "text-indigo-600" : "text-rose-600"}`}>{fmt(curTotals.net)}</td>
+                      {hasPrevData && <td className={`py-2.5 px-2 text-right text-xs font-bold ${curTotals.net - prevTotals.net >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{curTotals.net - prevTotals.net >= 0 ? '+' : ''}{fmt(curTotals.net - prevTotals.net)}</td>}
                     </tr>
                   </tfoot>
                 </table>
               </div>
-              <p className="text-xs text-gray-400 mt-3">Click any month to jump to it</p>
+              <p className={`text-xs ${dm('text-gray-400', 'text-gray-500')} mt-3`}>Click any month to jump to it</p>
             </Card>
           </>
-        )}
+          );
+        })()}
       </main>
 
       {/* ═══════ FLOATING QUICK-ADD EXPENSE BUTTON ═══════ */}
@@ -3753,8 +3896,8 @@ export default function PaycheckPlanner() {
         </div>
       )}
 
-      <footer className="text-center py-6 text-xs text-gray-400">
-        MaverickFinance · Your budget, your way
+      <footer className={`text-center py-6 text-xs ${isThemed ? 'opacity-50 ' + theme.textClass : 'text-gray-400'}`}>
+        MaverickFinance {isThemed ? `· ${theme.emoji} ${theme.name} Edition` : '· Your budget, your way'}
       </footer>
     </div>
   );
