@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { DollarSign, TrendingUp, TrendingDown, Landmark, CreditCard, PiggyBank, Calendar, Plus, Trash2, Check, X, AlertCircle, Target, Wallet, Bell, ChevronLeft, ChevronRight, BarChart3, Zap, ClipboardList, Copy, CheckCircle, Circle, GripVertical, Sun, Moon, Settings, Download, Upload, StickyNote, Calculator, Clock, Heart, Shield, Search, ChevronDown, Minus, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Landmark, CreditCard, PiggyBank, Calendar, Plus, Trash2, Check, X, AlertCircle, Target, Wallet, Bell, ChevronLeft, ChevronRight, BarChart3, Zap, ClipboardList, Copy, CheckCircle, Circle, GripVertical, Sun, Moon, Settings, Download, Upload, StickyNote, Calculator, Clock, Heart, Shield, Search, ChevronDown, Minus, ArrowDownCircle, ArrowUpCircle, GitBranch } from "lucide-react";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -39,6 +39,7 @@ const TABS = [
   { id: "networth", label: "Net Worth", icon: Landmark },
   { id: "paycalc", label: "Pay Calc", icon: Calculator },
   { id: "health", label: "Health", icon: Heart },
+  { id: "flow", label: "Flow", icon: GitBranch },
   { id: "yearly", label: "Year", icon: BarChart3 },
 ];
 
@@ -96,14 +97,14 @@ function StatCard({ icon: Icon, label, value, sub, color = "indigo", darkMode = 
   const txtMap = { indigo: "text-indigo-600", green: "text-emerald-600", amber: "text-amber-600", rose: "text-rose-600", cyan: "text-cyan-600" };
   return (
     <Card darkMode={darkMode}>
-      <div className="flex items-start gap-3">
-        <div className={`p-2.5 rounded-xl ${bgMap[color]}`}>
-          <Icon size={20} className={txtMap[color]} />
+      <div className="flex items-start gap-2 sm:gap-3">
+        <div className={`p-2 sm:p-2.5 rounded-xl flex-shrink-0 ${bgMap[color]}`}>
+          <Icon size={18} className={`sm:w-5 sm:h-5 ${txtMap[color]}`} />
         </div>
-        <div className="min-w-0">
-          <p className={`text-xs font-medium ${darkMode ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wide`}>{label}</p>
-          <p className={`text-xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'} mt-0.5 truncate`}>{value}</p>
-          {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+        <div className="min-w-0 flex-1">
+          <p className={`text-[10px] sm:text-xs font-medium ${darkMode ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wide`}>{label}</p>
+          <p className={`text-base sm:text-xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'} mt-0.5 break-all sm:break-normal`}>{value}</p>
+          {sub && <p className="text-[10px] sm:text-xs text-gray-400 mt-0.5">{sub}</p>}
         </div>
       </div>
     </Card>
@@ -306,6 +307,7 @@ export default function PaycheckPlanner() {
     { id: uid(), name: "Internet", amount: 65, dueDay: 20, category: "Utilities", autopay: true },
   ]);
   const [billDraft, setBillDraft] = useState(null);
+  const [editingBillId, setEditingBillId] = useState(null);
 
   // Savings goals (recurring monthly contribution)
   const [goals, setGoals] = useState([
@@ -360,6 +362,9 @@ export default function PaycheckPlanner() {
   const [plannerPaidByMonth, setPlannerPaidByMonth] = useState({});
   const [plannerDraft, setPlannerDraft] = useState(null);
   const [swipedItemId, setSwipedItemId] = useState(null);
+  const [plannerOrderByMonth, setPlannerOrderByMonth] = useState({});
+  const [draggedItemId, setDraggedItemId] = useState(null);
+  const [dragOverItemId, setDragOverItemId] = useState(null);
 
   // State for donut chart category drill-down
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -698,7 +703,7 @@ export default function PaycheckPlanner() {
       plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth,
       customCategories, categoryBudgets, darkMode,
       assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
-      payCalcEntries, payCalcSettings, savingsTransactions
+      payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -738,6 +743,7 @@ export default function PaycheckPlanner() {
         if (data.payCalcEntries) setPayCalcEntries(data.payCalcEntries);
         if (data.payCalcSettings) setPayCalcSettings(data.payCalcSettings);
         if (data.savingsTransactions) setSavingsTransactions(data.savingsTransactions);
+        if (data.plannerOrderByMonth) setPlannerOrderByMonth(data.plannerOrderByMonth);
         alert('Data imported successfully!');
       } catch (error) {
         alert('Error importing data: ' + error.message);
@@ -773,6 +779,8 @@ export default function PaycheckPlanner() {
   };
   const addBill = (b) => { setBills([...bills, { ...b, id: uid() }]); setBillDraft(null); };
   const removeBill = (id) => setBills(bills.filter((b) => b.id !== id));
+  const updateBill = (id, updates) => { setBills(bills.map(b => b.id === id ? { ...b, ...updates } : b)); setEditingBillId(null); setBillDraft(null); };
+  const startEditBill = (b) => { setBillDraft({ name: b.name, amount: b.amount, dueDay: b.dueDay, category: b.category, autopay: b.autopay }); setEditingBillId(b.id); };
   const addGoal = (g) => { setGoals([...goals, { ...g, id: uid(), color: COLORS[goals.length % COLORS.length] }]); setGoalDraft(null); };
   const removeGoal = (id) => setGoals(goals.filter((g) => g.id !== id));
   const withdrawFromGoal = (goalId, amount, description) => {
@@ -883,6 +891,19 @@ export default function PaycheckPlanner() {
     }
     setSwipedItemId(null);
   };
+  const reorderPlannerItem = (fromId, toId) => {
+    const key = vKey;
+    const currentOrder = plannerOrderByMonth[key] || plannerItems.map(i => i.id);
+    const fromIdx = currentOrder.indexOf(fromId);
+    const toIdx = currentOrder.indexOf(toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const newOrder = [...currentOrder];
+    newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, fromId);
+    setPlannerOrderByMonth({ ...plannerOrderByMonth, [key]: newOrder });
+    setDraggedItemId(null);
+    setDragOverItemId(null);
+  };
 
   // ── Net Worth CRUD ──
   const ASSET_CATEGORIES = ["Cash", "Investments", "Retirement", "Property", "Vehicle", "Other"];
@@ -976,6 +997,20 @@ export default function PaycheckPlanner() {
     return results.slice(0, 15);
   }, [globalSearch, incomeSources, bills, goals, debts, assets, expensesByMonth, plannerItems]);
 
+  // Apply custom ordering to planner items
+  const sortedPlannerItems = useMemo(() => {
+    const order = plannerOrderByMonth[vKey];
+    if (!order) return plannerItems;
+    const orderMap = {};
+    order.forEach((id, idx) => { orderMap[id] = idx; });
+    const ordered = [...plannerItems].sort((a, b) => {
+      const ai = orderMap[a.id] !== undefined ? orderMap[a.id] : 9999;
+      const bi = orderMap[b.id] !== undefined ? orderMap[b.id] : 9999;
+      return ai - bi;
+    });
+    return ordered;
+  }, [plannerItems, plannerOrderByMonth, vKey]);
+
   const plannerTotalIncome = plannerItems.filter((i) => i.type === "income").reduce((s, i) => s + i.amount, 0);
   const plannerTotalExpenses = plannerItems.filter((i) => i.type === "expense").reduce((s, i) => s + i.amount, 0);
   const plannerBalance = plannerTotalIncome - plannerTotalExpenses;
@@ -991,8 +1026,8 @@ export default function PaycheckPlanner() {
           <div className="flex items-center gap-2.5">
             <div className="bg-indigo-600 text-white p-2 rounded-xl"><Wallet size={20} /></div>
             <div>
-              <h1 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')} leading-tight`}>Paycheck Planner</h1>
-              <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Budget & bill tracker</p>
+              <h1 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')} leading-tight`}>MaverickFinance</h1>
+              <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Your budget, your way</p>
             </div>
           </div>
           {/* Month Switcher */}
@@ -1600,13 +1635,13 @@ export default function PaycheckPlanner() {
             </p>
 
             {/* Line items with running balance */}
-            {plannerItems.length === 0 ? (
+            {sortedPlannerItems.length === 0 ? (
               <EmptyState icon={ClipboardList} message="No items yet — add income and expenses!" />
             ) : (
               <div className="space-y-1.5">
                 {(() => {
                   let runningBalance = 0;
-                  return plannerItems.map((item) => {
+                  return sortedPlannerItems.map((item) => {
                     if (item.type === "income") runningBalance += item.amount;
                     else runningBalance -= item.amount;
                     const isIncome = item.type === "income";
@@ -1653,15 +1688,24 @@ export default function PaycheckPlanner() {
                               ? "bg-emerald-50/40 border-emerald-100"
                               : "bg-white border-gray-100"
                         }`}>
-                          {/* Drag hint + paid indicator */}
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            <GripVertical size={14} className="text-gray-300" />
+                          {/* Drag handle */}
+                          <div className="flex-shrink-0"
+                            draggable
+                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDraggedItemId(item.id); }}
+                            onDragOver={(e) => { e.preventDefault(); setDragOverItemId(item.id); }}
+                            onDragEnd={() => { if (draggedItemId && dragOverItemId && draggedItemId !== dragOverItemId) reorderPlannerItem(draggedItemId, dragOverItemId); else { setDraggedItemId(null); setDragOverItemId(null); } }}
+                            onDrop={(e) => { e.preventDefault(); if (draggedItemId && dragOverItemId) reorderPlannerItem(draggedItemId, dragOverItemId); }}
+                          >
+                            <GripVertical size={14} className={`cursor-grab active:cursor-grabbing ${dragOverItemId === item.id ? 'text-indigo-500' : 'text-gray-300'}`} />
+                          </div>
+                          {/* Clickable paid toggle */}
+                          <button onClick={() => togglePlannerPaid(item.id)} className="flex-shrink-0 transition-transform hover:scale-110 active:scale-95" title={item.paid ? "Mark unpaid" : "Mark paid"}>
                             {item.paid ? (
                               <CheckCircle size={18} className="text-emerald-500" />
                             ) : (
-                              <Circle size={18} className={isIncome ? "text-emerald-300" : "text-gray-300"} />
+                              <Circle size={18} className={isIncome ? "text-emerald-300 hover:text-emerald-400" : "text-gray-300 hover:text-gray-400"} />
                             )}
-                          </div>
+                          </button>
 
                           {/* Label */}
                           <div className="flex-1 min-w-0">
@@ -1784,7 +1828,7 @@ export default function PaycheckPlanner() {
           <>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-gray-900">Recurring Bills</h2>
-              <button onClick={() => setBillDraft({ name: "", amount: "", dueDay: 1, category: "Other", autopay: false })}
+              <button onClick={() => { setBillDraft({ name: "", amount: "", dueDay: 1, category: "Other", autopay: false }); setEditingBillId(null); }}
                 className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-indigo-700 transition">
                 <Plus size={16} /> Add Bill
               </button>
@@ -1807,9 +1851,9 @@ export default function PaycheckPlanner() {
                     {EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
                   </select>
                   <div className="flex gap-2">
-                    <button onClick={() => { if (billDraft.name && billDraft.amount) addBill({ ...billDraft, amount: +billDraft.amount }); }}
-                      className="flex-1 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1"><Check size={14} /> Save</button>
-                    <button onClick={() => setBillDraft(null)} className="px-3 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                    <button onClick={() => { if (billDraft.name && billDraft.amount) { if (editingBillId) updateBill(editingBillId, { ...billDraft, amount: +billDraft.amount }); else addBill({ ...billDraft, amount: +billDraft.amount }); } }}
+                      className="flex-1 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1"><Check size={14} /> {editingBillId ? 'Update' : 'Save'}</button>
+                    <button onClick={() => { setBillDraft(null); setEditingBillId(null); }} className="px-3 text-gray-400 hover:text-gray-600"><X size={16} /></button>
                   </div>
                 </div>
               </Card>
@@ -1834,6 +1878,7 @@ export default function PaycheckPlanner() {
                           <p className="text-xs text-gray-400">{b.category}{b.autopay ? " · Autopay" : ""}</p>
                         </div>
                         <span className="text-sm font-semibold text-gray-700">{fmt(b.amount)}</span>
+                        <button onClick={() => startEditBill(b)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-indigo-500 transition"><Settings size={14} /></button>
                         <button onClick={() => removeBill(b.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
                       </div>
                     ))}
@@ -1926,25 +1971,25 @@ export default function PaycheckPlanner() {
                       {/* Withdraw / Deposit buttons */}
                       <div className="flex gap-2 mt-3">
                         <button onClick={() => setSavingsWithdrawDraft({ goalId: g.id, type: "withdrawal", amount: "", description: "" })}
-                          className={`flex-1 flex items-center justify-center gap-1 text-xs font-medium py-2 rounded-lg transition ${dm('bg-rose-950/30 text-rose-400 hover:bg-rose-950/50', 'bg-rose-50 text-rose-600 hover:bg-rose-100')}`}>
+                          className={`flex-1 flex items-center justify-center gap-1 text-xs font-medium py-2 rounded-lg transition ${dm('bg-rose-50 text-rose-600 hover:bg-rose-100', 'bg-rose-950/30 text-rose-400 hover:bg-rose-950/50')}`}>
                           <ArrowUpCircle size={14} /> Withdraw
                         </button>
                         <button onClick={() => setSavingsWithdrawDraft({ goalId: g.id, type: "deposit", amount: "", description: "" })}
-                          className={`flex-1 flex items-center justify-center gap-1 text-xs font-medium py-2 rounded-lg transition ${dm('bg-emerald-950/30 text-emerald-400 hover:bg-emerald-950/50', 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100')}`}>
+                          className={`flex-1 flex items-center justify-center gap-1 text-xs font-medium py-2 rounded-lg transition ${dm('bg-emerald-50 text-emerald-600 hover:bg-emerald-100', 'bg-emerald-950/30 text-emerald-400 hover:bg-emerald-950/50')}`}>
                           <ArrowDownCircle size={14} /> Deposit
                         </button>
                       </div>
 
                       {/* Withdraw/Deposit form */}
                       {savingsWithdrawDraft && savingsWithdrawDraft.goalId === g.id && (
-                        <div className={`mt-3 p-3 rounded-xl border ${savingsWithdrawDraft.type === "withdrawal" ? dm('bg-rose-950/20 border-rose-800', 'bg-rose-50/50 border-rose-200') : dm('bg-emerald-950/20 border-emerald-800', 'bg-emerald-50/50 border-emerald-200')}`}>
+                        <div className={`mt-3 p-3 rounded-xl border ${savingsWithdrawDraft.type === "withdrawal" ? dm('bg-rose-50/50 border-rose-200', 'bg-rose-950/20 border-rose-800') : dm('bg-emerald-50/50 border-emerald-200', 'bg-emerald-950/20 border-emerald-800')}`}>
                           <p className={`text-xs font-semibold mb-2 ${savingsWithdrawDraft.type === "withdrawal" ? 'text-rose-500' : 'text-emerald-600'}`}>
                             {savingsWithdrawDraft.type === "withdrawal" ? "Withdraw from" : "Deposit to"} {g.name}
                           </p>
                           <div className="flex gap-2">
                             <input placeholder="What for?" value={savingsWithdrawDraft.description}
                               onChange={(e) => setSavingsWithdrawDraft({ ...savingsWithdrawDraft, description: e.target.value })}
-                              className={`flex-1 px-3 py-1.5 border rounded-lg text-sm ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} autoFocus />
+                              className={`flex-1 px-3 py-1.5 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} autoFocus />
                             <div className="relative w-28">
                               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
                               <input type="number" placeholder="Amount" value={savingsWithdrawDraft.amount}
@@ -1955,7 +2000,7 @@ export default function PaycheckPlanner() {
                                     else depositToGoal(g.id, +savingsWithdrawDraft.amount, savingsWithdrawDraft.description);
                                   }
                                 }}
-                                className={`w-full pl-6 pr-2 py-1.5 border rounded-lg text-sm ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                                className={`w-full pl-6 pr-2 py-1.5 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
                             </div>
                           </div>
                           <div className="flex gap-2 mt-2">
@@ -2095,7 +2140,7 @@ export default function PaycheckPlanner() {
 
             {/* Budget Targets Card */}
             <Card darkMode={darkMode} className={`border-l-4 ${dm('border-purple-500', 'border-purple-400')} mb-4`}>
-              <h3 className={`text-sm font-semibold mb-3 ${dm('text-gray-200', 'text-gray-700')}`}>Budget Targets</h3>
+              <h3 className={`text-sm font-semibold mb-3 ${dm('text-gray-700', 'text-gray-200')}`}>Budget Targets</h3>
 
               {Object.entries(categoryBudgets).length > 0 ? (
                 <div className="space-y-3 mb-4">
@@ -2104,13 +2149,13 @@ export default function PaycheckPlanner() {
                     const isOverBudget = spent > budgetAmount;
                     const pctSpent = pct(spent, budgetAmount);
                     return (
-                      <div key={catName} className={`p-3 rounded-lg ${dm('bg-slate-700/50', 'bg-gray-50')}`}>
+                      <div key={catName} className={`p-3 rounded-lg ${dm('bg-gray-50', 'bg-slate-700/50')}`}>
                         <div className="flex items-start justify-between mb-2">
                           <div className="flex-1">
-                            <h4 className={`text-sm font-medium ${dm('text-gray-200', 'text-gray-800')}`}>{catName}</h4>
+                            <h4 className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')}`}>{catName}</h4>
                             <div className="flex gap-4 text-xs mt-1">
-                              <span className={dm('text-gray-400', 'text-gray-600')}>Target: {fmt(budgetAmount)}</span>
-                              <span className={`font-medium ${isOverBudget ? 'text-rose-500' : dm('text-emerald-400', 'text-emerald-600')}`}>Spent: {fmt(spent)}</span>
+                              <span className={dm('text-gray-600', 'text-gray-400')}>Target: {fmt(budgetAmount)}</span>
+                              <span className={`font-medium ${isOverBudget ? 'text-rose-500' : dm('text-emerald-600', 'text-emerald-400')}`}>Spent: {fmt(spent)}</span>
                             </div>
                           </div>
                           <button
@@ -2119,7 +2164,7 @@ export default function PaycheckPlanner() {
                               delete newBudgets[catName];
                               setCategoryBudgets(newBudgets);
                             }}
-                            className={`p-1 flex-shrink-0 rounded hover:${dm('bg-slate-600', 'bg-gray-200')}`}
+                            className={`p-1 flex-shrink-0 rounded hover:${dm('bg-gray-200', 'bg-slate-600')}`}
                           >
                             <Trash2 size={14} className="text-rose-500" />
                           </button>
@@ -2136,17 +2181,17 @@ export default function PaycheckPlanner() {
                   })}
                 </div>
               ) : (
-                <p className={`text-xs text-center py-3 ${dm('text-gray-400', 'text-gray-500')}`}>No budget targets set</p>
+                <p className={`text-xs text-center py-3 ${dm('text-gray-500', 'text-gray-400')}`}>No budget targets set</p>
               )}
 
               {budgetDraft ? (
-                <div className={`p-3 rounded-lg border-2 ${dm('bg-slate-700/50 border-slate-600', 'bg-indigo-50 border-indigo-200')} space-y-2`}>
-                  <h4 className={`text-xs font-semibold ${dm('text-gray-200', 'text-gray-700')}`}>Add Budget Target</h4>
+                <div className={`p-3 rounded-lg border-2 ${dm('bg-indigo-50 border-indigo-200', 'bg-slate-700/50 border-slate-600')} space-y-2`}>
+                  <h4 className={`text-xs font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Add Budget Target</h4>
                   <div className="flex gap-2">
                     <select
                       value={budgetDraft.category}
                       onChange={(e) => setBudgetDraft({ ...budgetDraft, category: e.target.value })}
-                      className={`flex-1 px-2 py-1.5 text-sm rounded border focus:outline-none focus:ring-2 focus:ring-indigo-400 ${dm('bg-slate-600 border-slate-500 text-white', 'bg-white border-gray-200')}`}
+                      className={`flex-1 px-2 py-1.5 text-sm rounded border focus:outline-none focus:ring-2 focus:ring-indigo-400 ${dm('bg-white border-gray-200', 'bg-slate-600 border-slate-500 text-white')}`}
                     >
                       <option value="">Select category...</option>
                       {customCategories.filter(cat => !categoryBudgets[cat.name]).map(cat => (
@@ -2154,13 +2199,13 @@ export default function PaycheckPlanner() {
                       ))}
                     </select>
                     <div className="relative">
-                      <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-sm ${dm('text-gray-400', 'text-gray-500')}`}>$</span>
+                      <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-sm ${dm('text-gray-500', 'text-gray-400')}`}>$</span>
                       <input
                         type="number"
                         placeholder="Amount"
                         value={budgetDraft.amount}
                         onChange={(e) => setBudgetDraft({ ...budgetDraft, amount: e.target.value })}
-                        className={`w-20 pl-6 pr-2 py-1.5 text-sm rounded border focus:outline-none focus:ring-2 focus:ring-indigo-400 ${dm('bg-slate-600 border-slate-500 text-white', 'bg-white border-gray-200')}`}
+                        className={`w-20 pl-6 pr-2 py-1.5 text-sm rounded border focus:outline-none focus:ring-2 focus:ring-indigo-400 ${dm('bg-white border-gray-200', 'bg-slate-600 border-slate-500 text-white')}`}
                       />
                     </div>
                   </div>
@@ -2378,15 +2423,15 @@ export default function PaycheckPlanner() {
                       .sort((a, b) => b[1].total - a[1].total)
                       .slice(0, 10)
                       .map(([name, data], i) => (
-                        <div key={name} className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('hover:bg-slate-700', 'hover:bg-gray-50')} transition`}>
-                          <div className={`w-8 h-8 rounded-lg ${dm('bg-slate-700', 'bg-indigo-50')} ${dm('text-indigo-400', 'text-indigo-600')} text-xs font-bold flex items-center justify-center`}>
+                        <div key={name} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg ${dm('bg-gray-50 hover:bg-gray-100', 'bg-slate-700/40 hover:bg-slate-700')} transition`}>
+                          <div className={`w-8 h-8 rounded-lg ${dm('bg-indigo-100', 'bg-slate-700')} ${dm('text-indigo-600', 'text-indigo-400')} text-xs font-bold flex items-center justify-center`}>
                             {i + 1}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-medium ${dm('text-gray-200', 'text-gray-800')} truncate`}>{name}</p>
-                            <p className="text-xs text-gray-400">{data.count} transaction{data.count > 1 ? 's' : ''}</p>
+                            <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')} truncate`}>{name}</p>
+                            <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>{data.count} transaction{data.count > 1 ? 's' : ''}</p>
                           </div>
-                          <span className={`text-sm font-semibold ${dm('text-gray-200', 'text-gray-700')}`}>{fmt(data.total)}</span>
+                          <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>{fmt(data.total)}</span>
                         </div>
                       ));
                   })()}
@@ -2441,7 +2486,7 @@ export default function PaycheckPlanner() {
               </Card>
             )}
 
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <StatCard darkMode={darkMode} icon={CreditCard} label="Total Debt" value={fmt(totalDebtBalance)} color="rose" />
               <StatCard darkMode={darkMode} icon={DollarSign} label="Monthly Payments" value={fmt(totalDebtPayments)} sub="Min + extra" color="amber" />
               <StatCard darkMode={darkMode} icon={TrendingUp} label="Debt-to-Income" value={`${pct(totalDebtPayments, monthlyIncome)}%`} sub={monthlyIncome > 0 && pct(totalDebtPayments, monthlyIncome) > 36 ? "Above recommended 36%" : "Healthy ratio"} color={monthlyIncome > 0 && pct(totalDebtPayments, monthlyIncome) > 36 ? "rose" : "green"} />
@@ -2505,25 +2550,25 @@ export default function PaycheckPlanner() {
               <Card darkMode={darkMode}>
                 <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Snowball vs Avalanche</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className={`p-4 rounded-xl border-2 ${dm('border-cyan-700 bg-cyan-950/20', 'border-cyan-200 bg-cyan-50/50')}`}>
-                    <h4 className={`text-sm font-bold ${dm('text-cyan-300', 'text-cyan-700')} mb-2`}>Avalanche <span className="text-xs font-normal">(highest rate first)</span></h4>
+                  <div className={`p-4 rounded-xl border-2 ${dm('border-cyan-200 bg-cyan-50/50', 'border-cyan-700 bg-cyan-950/20')}`}>
+                    <h4 className={`text-sm font-bold ${dm('text-cyan-700', 'text-cyan-300')} mb-2`}>Avalanche <span className="text-xs font-normal">(highest rate first)</span></h4>
                     <div className="space-y-1.5 text-xs">
-                      <div className="flex justify-between"><span className={dm('text-gray-400', 'text-gray-600')}>Payoff time</span><span className={`font-bold ${dm('text-white', 'text-gray-900')}`}>{Math.floor(debtStrategies.avalanche.months / 12)}y {debtStrategies.avalanche.months % 12}m</span></div>
-                      <div className="flex justify-between"><span className={dm('text-gray-400', 'text-gray-600')}>Total interest</span><span className="font-bold text-rose-500">{fmt(debtStrategies.avalanche.totalInterest)}</span></div>
-                      <div className="flex justify-between"><span className={dm('text-gray-400', 'text-gray-600')}>Total paid</span><span className={`font-bold ${dm('text-white', 'text-gray-900')}`}>{fmt(debtStrategies.avalanche.totalPaid)}</span></div>
+                      <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Payoff time</span><span className={`font-bold ${dm('text-gray-900', 'text-white')}`}>{Math.floor(debtStrategies.avalanche.months / 12)}y {debtStrategies.avalanche.months % 12}m</span></div>
+                      <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Total interest</span><span className="font-bold text-rose-500">{fmt(debtStrategies.avalanche.totalInterest)}</span></div>
+                      <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Total paid</span><span className={`font-bold ${dm('text-gray-900', 'text-white')}`}>{fmt(debtStrategies.avalanche.totalPaid)}</span></div>
                     </div>
                   </div>
-                  <div className={`p-4 rounded-xl border-2 ${dm('border-amber-700 bg-amber-950/20', 'border-amber-200 bg-amber-50/50')}`}>
-                    <h4 className={`text-sm font-bold ${dm('text-amber-300', 'text-amber-700')} mb-2`}>Snowball <span className="text-xs font-normal">(smallest balance first)</span></h4>
+                  <div className={`p-4 rounded-xl border-2 ${dm('border-amber-200 bg-amber-50/50', 'border-amber-700 bg-amber-950/20')}`}>
+                    <h4 className={`text-sm font-bold ${dm('text-amber-700', 'text-amber-300')} mb-2`}>Snowball <span className="text-xs font-normal">(smallest balance first)</span></h4>
                     <div className="space-y-1.5 text-xs">
-                      <div className="flex justify-between"><span className={dm('text-gray-400', 'text-gray-600')}>Payoff time</span><span className={`font-bold ${dm('text-white', 'text-gray-900')}`}>{Math.floor(debtStrategies.snowball.months / 12)}y {debtStrategies.snowball.months % 12}m</span></div>
-                      <div className="flex justify-between"><span className={dm('text-gray-400', 'text-gray-600')}>Total interest</span><span className="font-bold text-rose-500">{fmt(debtStrategies.snowball.totalInterest)}</span></div>
-                      <div className="flex justify-between"><span className={dm('text-gray-400', 'text-gray-600')}>Total paid</span><span className={`font-bold ${dm('text-white', 'text-gray-900')}`}>{fmt(debtStrategies.snowball.totalPaid)}</span></div>
+                      <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Payoff time</span><span className={`font-bold ${dm('text-gray-900', 'text-white')}`}>{Math.floor(debtStrategies.snowball.months / 12)}y {debtStrategies.snowball.months % 12}m</span></div>
+                      <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Total interest</span><span className="font-bold text-rose-500">{fmt(debtStrategies.snowball.totalInterest)}</span></div>
+                      <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Total paid</span><span className={`font-bold ${dm('text-gray-900', 'text-white')}`}>{fmt(debtStrategies.snowball.totalPaid)}</span></div>
                     </div>
                   </div>
                 </div>
                 {debtStrategies.avalanche.totalInterest < debtStrategies.snowball.totalInterest && (
-                  <p className={`text-xs mt-3 ${dm('text-cyan-400', 'text-cyan-600')} font-medium`}>
+                  <p className={`text-xs mt-3 ${dm('text-cyan-600', 'text-cyan-400')} font-medium`}>
                     Avalanche saves you {fmt(debtStrategies.snowball.totalInterest - debtStrategies.avalanche.totalInterest)} in interest!
                   </p>
                 )}
@@ -2534,16 +2579,16 @@ export default function PaycheckPlanner() {
             {debts.length > 0 && (
               <Card darkMode={darkMode}>
                 <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Extra Payment Simulator</h3>
-                <p className={`text-xs ${dm('text-gray-400', 'text-gray-500')} mb-3`}>See how extra monthly payments affect your payoff timeline.</p>
+                <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')} mb-3`}>See how extra monthly payments affect your payoff timeline.</p>
                 <div className="flex items-center gap-3 mb-4">
-                  <span className={`text-sm ${dm('text-gray-300', 'text-gray-600')}`}>Extra/mo:</span>
+                  <span className={`text-sm ${dm('text-gray-600', 'text-gray-300')}`}>Extra/mo:</span>
                   <div className="relative flex-1">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                     <input type="range" min="0" max="1000" step="25" value={simExtraPayment}
                       onChange={(e) => setSimExtraPayment(+e.target.value)}
                       className="w-full" />
                   </div>
-                  <span className={`text-sm font-bold ${dm('text-white', 'text-gray-900')} w-20 text-right`}>{fmt(simExtraPayment)}</span>
+                  <span className={`text-sm font-bold ${dm('text-gray-900', 'text-white')} w-20 text-right`}>{fmt(simExtraPayment)}</span>
                 </div>
                 <div className="space-y-2">
                   {debts.map((d) => {
@@ -2561,9 +2606,9 @@ export default function PaycheckPlanner() {
                     const savedMonths = base.months - boosted.months;
                     const savedInterest = base.interest - boosted.interest;
                     return (
-                      <div key={d.id} className={`p-3 rounded-lg ${dm('bg-slate-700/50', 'bg-gray-50')} flex items-center justify-between`}>
+                      <div key={d.id} className={`p-3 rounded-lg ${dm('bg-gray-50', 'bg-slate-700/50')} flex items-center justify-between`}>
                         <div>
-                          <p className={`text-sm font-medium ${dm('text-gray-200', 'text-gray-800')}`}>{d.name}</p>
+                          <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')}`}>{d.name}</p>
                           <p className="text-xs text-gray-400">{fmt(d.balance)} at {d.rate}%</p>
                         </div>
                         <div className="text-right">
@@ -2597,10 +2642,11 @@ export default function PaycheckPlanner() {
             </div>
 
             {/* Summary cards */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <StatCard darkMode={darkMode} icon={TrendingUp} label="Total Assets" value={fmt(totalAssets)} color="green" />
               <StatCard darkMode={darkMode} icon={TrendingDown} label="Total Liabilities" value={fmt(totalLiabilities)} color="rose" />
               <StatCard darkMode={darkMode} icon={Landmark} label="Net Worth" value={fmt(netWorth)} sub={netWorth >= 0 ? "Positive" : "Negative"} color={netWorth >= 0 ? "green" : "rose"} />
+
             </div>
 
             {/* Net Worth bar visualization */}
@@ -2954,7 +3000,7 @@ export default function PaycheckPlanner() {
                   <div className="relative mt-1">
                     <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
                     <input type="number" value={payCalcSettings.hourlyRate} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, hourlyRate: +e.target.value })}
-                      className={`w-full pl-6 pr-2 py-1.5 border rounded-lg text-sm ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                      className={`w-full pl-6 pr-2 py-1.5 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
                   </div>
                 </div>
                 <div>
@@ -2967,7 +3013,7 @@ export default function PaycheckPlanner() {
                   <div className="relative mt-1">
                     <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
                     <input type="number" value={payCalcSettings.preTaxDeductions} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, preTaxDeductions: +e.target.value })}
-                      className={`w-full pl-6 pr-2 py-1.5 border rounded-lg text-sm ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                      className={`w-full pl-6 pr-2 py-1.5 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
                   </div>
                 </div>
               </div>
@@ -3198,9 +3244,9 @@ export default function PaycheckPlanner() {
                     <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3 flex items-center gap-2`}><Shield size={16} className="text-indigo-500" /> Improvement Tips</h3>
                     <div className="space-y-2">
                       {scores.filter(sc => sc.score < sc.max * 0.75).map(sc => (
-                        <div key={sc.label} className={`p-3 rounded-lg ${dm('bg-slate-700/50', 'bg-gray-50')}`}>
-                          <p className={`text-sm font-medium ${dm('text-gray-200', 'text-gray-800')}`}>{sc.label}</p>
-                          <p className={`text-xs ${dm('text-gray-400', 'text-gray-500')} mt-0.5`}>
+                        <div key={sc.label} className={`p-3 rounded-lg ${dm('bg-gray-50', 'bg-slate-700/50')}`}>
+                          <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')}`}>{sc.label}</p>
+                          <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')} mt-0.5`}>
                             {sc.label === 'Emergency Fund' && 'Build up 3-6 months of expenses in a savings account.'}
                             {sc.label === 'Debt-to-Income' && 'Focus on paying down debt — consider the avalanche method.'}
                             {sc.label === 'Savings Rate' && 'Aim to save at least 20% of your income each month.'}
@@ -3210,13 +3256,184 @@ export default function PaycheckPlanner() {
                         </div>
                       ))}
                       {scores.every(sc => sc.score >= sc.max * 0.75) && (
-                        <p className={`text-sm text-center py-4 ${dm('text-emerald-400', 'text-emerald-600')} font-medium`}>You're doing great across the board! Keep it up.</p>
+                        <p className={`text-sm text-center py-4 ${dm('text-emerald-600', 'text-emerald-400')} font-medium`}>You're doing great across the board! Keep it up.</p>
                       )}
                     </div>
                   </Card>
                 </>
               );
             })()}
+          </>
+        )}
+
+        {/* ═══════ MONEY FLOW TAB ═══════ */}
+        {tab === "flow" && (
+          <>
+            <div className="flex items-center justify-between">
+              <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')}`}>Money Flow — {monthLabel(viewYear, viewMonth)}</h2>
+            </div>
+
+            {monthlyIncome === 0 && totalAllExpenses === 0 ? (
+              <EmptyState icon={GitBranch} message="Add income and expenses to see your money flow" />
+            ) : (
+              <Card darkMode={darkMode}>
+                <div className="overflow-x-auto">
+                  {(() => {
+                    // Build flow data
+                    const sources = monthPaychecks.map(p => ({ name: p.label, amount: p.amount }));
+                    const extras = (extraChecks[vKey] || []);
+                    extras.forEach(e => sources.push({ name: e.label || 'Bonus', amount: e.amount }));
+                    const totalInc = sources.reduce((s, p) => s + p.amount, 0);
+                    if (totalInc === 0) return <p className={`text-sm text-center py-8 ${dm('text-gray-400', 'text-gray-500')}`}>No income this month</p>;
+
+                    // Categories for outflow
+                    const outflows = [];
+                    if (totalBills > 0) outflows.push({ name: 'Bills', amount: totalBills, color: '#f59e0b' });
+                    if (totalDebtPayments > 0) outflows.push({ name: 'Debt', amount: totalDebtPayments, color: '#f43f5e' });
+                    if (totalSavingsContrib > 0) outflows.push({ name: 'Savings', amount: totalSavingsContrib, color: '#6366f1' });
+                    // Add manual expense categories
+                    const manualByCat = {};
+                    manualExpenses.forEach(e => { manualByCat[e.category] = (manualByCat[e.category] || 0) + e.amount; });
+                    Object.entries(manualByCat).sort((a, b) => b[1] - a[1]).forEach(([cat, amt]) => {
+                      outflows.push({ name: cat, amount: amt, color: '#64748b' });
+                    });
+                    const totalOut = outflows.reduce((s, o) => s + o.amount, 0);
+                    const remaining = Math.max(0, totalInc - totalOut);
+                    if (remaining > 0) outflows.push({ name: 'Remaining', amount: remaining, color: '#10b981' });
+
+                    // SVG dimensions
+                    const W = 800, colW = 140, midX = W / 2 - colW / 2;
+                    const leftX = 20, rightX = W - colW - 20;
+                    const gap = 6, minH = 24;
+
+                    // Scale heights
+                    const maxTotal = Math.max(totalInc, totalOut + remaining);
+                    const availH = Math.max(300, Math.max(sources.length, outflows.length) * 50);
+                    const scale = (amt) => Math.max(minH, (amt / maxTotal) * (availH - gap * Math.max(sources.length, outflows.length)));
+
+                    // Left column positions (income sources)
+                    let leftY = 20;
+                    const leftItems = sources.map(s => {
+                      const h = scale(s.amount);
+                      const item = { ...s, y: leftY, h, midY: leftY + h / 2 };
+                      leftY += h + gap;
+                      return item;
+                    });
+
+                    // Right column positions (outflows)
+                    let rightY = 20;
+                    const rightItems = outflows.map(o => {
+                      const h = scale(o.amount);
+                      const item = { ...o, y: rightY, h, midY: rightY + h / 2 };
+                      rightY += h + gap;
+                      return item;
+                    });
+
+                    // Middle pool
+                    const midH = Math.max(leftY, rightY) - 20;
+                    const midY = 20;
+                    const svgH = Math.max(leftY, rightY) + 20;
+
+                    return (
+                      <svg viewBox={`0 0 ${W} ${svgH}`} className="w-full" style={{ minHeight: 300 }}>
+                        {/* Left: Income sources */}
+                        {leftItems.map((item, i) => (
+                          <g key={`l-${i}`}>
+                            <rect x={leftX} y={item.y} width={colW} height={item.h} rx={6} fill="#6366f1" opacity={0.85} />
+                            <text x={leftX + colW / 2} y={item.midY - 6} textAnchor="middle" fill="white" fontSize={11} fontWeight="600">{item.name}</text>
+                            <text x={leftX + colW / 2} y={item.midY + 10} textAnchor="middle" fill="#c7d2fe" fontSize={10}>{fmt(item.amount)}</text>
+                            {/* Flow curve to middle */}
+                            <path d={`M${leftX + colW},${item.midY} C${leftX + colW + 60},${item.midY} ${midX - 60},${midY + midH / 2} ${midX},${midY + midH / 2}`}
+                              fill="none" stroke="#6366f1" strokeWidth={Math.max(2, item.h * 0.4)} opacity={0.12} />
+                            <path d={`M${leftX + colW},${item.midY} C${leftX + colW + 60},${item.midY} ${midX - 60},${midY + midH / 2} ${midX},${midY + midH / 2}`}
+                              fill="none" stroke="#6366f1" strokeWidth={1.5} opacity={0.3} />
+                          </g>
+                        ))}
+
+                        {/* Middle: Total Income pool */}
+                        <rect x={midX} y={midY} width={colW} height={midH} rx={8} fill="#10b981" opacity={0.1} stroke="#10b981" strokeWidth={1.5} />
+                        <text x={midX + colW / 2} y={midY + midH / 2 - 8} textAnchor="middle" fill="#059669" fontSize={13} fontWeight="700">Total Income</text>
+                        <text x={midX + colW / 2} y={midY + midH / 2 + 10} textAnchor="middle" fill="#059669" fontSize={12}>{fmt(totalInc)}</text>
+
+                        {/* Right: Outflow categories */}
+                        {rightItems.map((item, i) => (
+                          <g key={`r-${i}`}>
+                            <rect x={rightX} y={item.y} width={colW} height={item.h} rx={6} fill={item.color} opacity={0.15} stroke={item.color} strokeWidth={1} />
+                            <text x={rightX + colW / 2} y={item.midY - 6} textAnchor="middle" fill={item.color} fontSize={11} fontWeight="600">{item.name}</text>
+                            <text x={rightX + colW / 2} y={item.midY + 10} textAnchor="middle" fill={item.color} fontSize={10} opacity={0.8}>{fmt(item.amount)} ({pct(item.amount, totalInc)}%)</text>
+                            {/* Flow curve from middle */}
+                            <path d={`M${midX + colW},${midY + midH / 2} C${midX + colW + 60},${midY + midH / 2} ${rightX - 60},${item.midY} ${rightX},${item.midY}`}
+                              fill="none" stroke={item.color} strokeWidth={Math.max(2, item.h * 0.4)} opacity={0.1} />
+                            <path d={`M${midX + colW},${midY + midH / 2} C${midX + colW + 60},${midY + midH / 2} ${rightX - 60},${item.midY} ${rightX},${item.midY}`}
+                              fill="none" stroke={item.color} strokeWidth={1.5} opacity={0.3} />
+                          </g>
+                        ))}
+
+                        {/* Column labels */}
+                        <text x={leftX + colW / 2} y={svgH - 5} textAnchor="middle" fill="#94a3b8" fontSize={10} fontWeight="600">INCOME</text>
+                        <text x={midX + colW / 2} y={svgH - 5} textAnchor="middle" fill="#94a3b8" fontSize={10} fontWeight="600">TOTAL</text>
+                        <text x={rightX + colW / 2} y={svgH - 5} textAnchor="middle" fill="#94a3b8" fontSize={10} fontWeight="600">OUTFLOW</text>
+                      </svg>
+                    );
+                  })()}
+                </div>
+              </Card>
+            )}
+
+            {/* Flow Summary Table */}
+            {monthlyIncome > 0 && (
+              <Card darkMode={darkMode}>
+                <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Flow Breakdown</h3>
+                <div className="space-y-2">
+                  <div className={`flex items-center justify-between py-2.5 px-3 rounded-lg ${dm('bg-emerald-50', 'bg-emerald-950/20')}`}>
+                    <span className={`text-sm font-medium ${dm('text-emerald-700', 'text-emerald-400')}`}>Total Income</span>
+                    <span className={`text-sm font-bold ${dm('text-emerald-700', 'text-emerald-500')}`}>{fmt(monthlyIncome)}</span>
+                  </div>
+                  {totalBills > 0 && (
+                    <div className={`flex items-center justify-between py-2.5 px-3 rounded-lg ${dm('bg-amber-50', 'bg-slate-700/30')}`}>
+                      <span className={`text-sm font-medium ${dm('text-amber-700', 'text-gray-300')}`}>Bills & Utilities</span>
+                      <div className="text-right">
+                        <span className={`text-sm font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{fmt(totalBills)}</span>
+                        <span className={`text-xs ${dm('text-amber-500', 'text-gray-400')} ml-2`}>{pct(totalBills, monthlyIncome)}%</span>
+                      </div>
+                    </div>
+                  )}
+                  {totalDebtPayments > 0 && (
+                    <div className={`flex items-center justify-between py-2.5 px-3 rounded-lg ${dm('bg-rose-50', 'bg-slate-700/30')}`}>
+                      <span className={`text-sm font-medium ${dm('text-rose-700', 'text-gray-300')}`}>Debt Payments</span>
+                      <div className="text-right">
+                        <span className={`text-sm font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{fmt(totalDebtPayments)}</span>
+                        <span className={`text-xs ${dm('text-rose-500', 'text-gray-400')} ml-2`}>{pct(totalDebtPayments, monthlyIncome)}%</span>
+                      </div>
+                    </div>
+                  )}
+                  {totalSavingsContrib > 0 && (
+                    <div className={`flex items-center justify-between py-2.5 px-3 rounded-lg ${dm('bg-cyan-50', 'bg-slate-700/30')}`}>
+                      <span className={`text-sm font-medium ${dm('text-cyan-700', 'text-gray-300')}`}>Savings</span>
+                      <div className="text-right">
+                        <span className={`text-sm font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{fmt(totalSavingsContrib)}</span>
+                        <span className={`text-xs ${dm('text-cyan-500', 'text-gray-400')} ml-2`}>{pct(totalSavingsContrib, monthlyIncome)}%</span>
+                      </div>
+                    </div>
+                  )}
+                  {totalManualExpenses > 0 && (
+                    <div className={`flex items-center justify-between py-2.5 px-3 rounded-lg ${dm('bg-indigo-50', 'bg-slate-700/30')}`}>
+                      <span className={`text-sm font-medium ${dm('text-indigo-700', 'text-gray-300')}`}>Other Spending</span>
+                      <div className="text-right">
+                        <span className={`text-sm font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{fmt(totalManualExpenses)}</span>
+                        <span className={`text-xs ${dm('text-indigo-500', 'text-gray-400')} ml-2`}>{pct(totalManualExpenses, monthlyIncome)}%</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className={`flex items-center justify-between py-2.5 px-3 rounded-lg border-t-2 ${dm('border-gray-200', 'border-slate-700')} mt-1 pt-3`}>
+                    <span className={`text-sm font-semibold ${remainingBudget >= 0 ? dm('text-emerald-700', 'text-emerald-400') : dm('text-rose-600', 'text-rose-400')}`}>
+                      {remainingBudget >= 0 ? 'Remaining' : 'Over Budget'}
+                    </span>
+                    <span className={`text-sm font-bold ${remainingBudget >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(Math.abs(remainingBudget))}</span>
+                  </div>
+                </div>
+              </Card>
+            )}
           </>
         )}
 
@@ -3377,7 +3594,7 @@ export default function PaycheckPlanner() {
       )}
 
       <footer className="text-center py-6 text-xs text-gray-400">
-        Paycheck Planner · Your budget, your paychecks
+        MaverickFinance · Your budget, your way
       </footer>
     </div>
   );
