@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { DollarSign, TrendingUp, TrendingDown, Landmark, CreditCard, PiggyBank, Calendar, Plus, Trash2, Check, X, AlertCircle, Target, Wallet, Bell, ChevronLeft, ChevronRight, BarChart3, Zap, ClipboardList, Copy, CheckCircle, Circle, GripVertical, Sun, Moon, Settings, Download, Upload, StickyNote, Calculator, Clock, Heart, Shield, Search, ChevronDown, Minus, ArrowDownCircle, ArrowUpCircle, GitBranch } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Landmark, CreditCard, PiggyBank, Calendar, Plus, Trash2, Check, X, AlertCircle, Target, Wallet, Bell, ChevronLeft, ChevronRight, BarChart3, Zap, ClipboardList, Copy, CheckCircle, Circle, GripVertical, Sun, Moon, Settings, Download, Upload, StickyNote, Calculator, Clock, Heart, Shield, Search, ChevronDown, Minus, ArrowDownCircle, ArrowUpCircle, GitBranch, Repeat, Eye, Sparkles, CalendarDays } from "lucide-react";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -51,6 +51,8 @@ const TABS = [
   { id: "paycalc", label: "Pay Calc", icon: Calculator },
   { id: "health", label: "Health", icon: Heart },
   { id: "flow", label: "Flow", icon: GitBranch },
+  { id: "subscriptions", label: "Subs", icon: Repeat },
+  { id: "insights", label: "Insights", icon: Sparkles },
   { id: "yearly", label: "Year", icon: BarChart3 },
 ];
 
@@ -317,6 +319,7 @@ export default function PaycheckPlanner() {
     "Transportation": 300,
   }));
   const [budgetDraft, setBudgetDraft] = useState(null);
+  const [editingBudgetCat, setEditingBudgetCat] = useState(null);
   const [tab, setTab] = useState("dashboard");
 
   // ── Month navigation ──
@@ -375,10 +378,10 @@ export default function PaycheckPlanner() {
   // ═══════════════════════════════════════════════════════════════════════
   const [expensesByMonth, setExpensesByMonth] = useState(init("expensesByMonth", {
     "2026-03": [
-      { id: uid(), description: "Groceries", amount: 85, category: "Food & Groceries", date: "2026-03-15" },
-      { id: uid(), description: "Gas", amount: 45, category: "Transportation", date: "2026-03-14" },
-      { id: uid(), description: "Netflix", amount: 15.99, category: "Subscriptions", date: "2026-03-01" },
-      { id: uid(), description: "Haircut", amount: 30, category: "Personal Care", date: "2026-03-10" },
+      { id: uid(), description: "Groceries", amount: 85, category: "Food & Groceries", date: "2026-03-15", merchant: "Kroger" },
+      { id: uid(), description: "Gas", amount: 45, category: "Transportation", date: "2026-03-14", merchant: "Shell" },
+      { id: uid(), description: "Netflix", amount: 15.99, category: "Subscriptions", date: "2026-03-01", merchant: "Netflix" },
+      { id: uid(), description: "Haircut", amount: 30, category: "Personal Care", date: "2026-03-10", merchant: "Great Clips" },
     ],
   }));
   const [expDraft, setExpDraft] = useState(null);
@@ -445,6 +448,24 @@ export default function PaycheckPlanner() {
   }));
 
   // ═══════════════════════════════════════════════════════════════════════
+  // SUBSCRIPTIONS TRACKER
+  // ═══════════════════════════════════════════════════════════════════════
+  const [subscriptions, setSubscriptions] = useState(init("subscriptions", [
+    { id: uid(), name: "Netflix", amount: 15.99, frequency: "monthly", category: "Entertainment", nextBillDate: "2026-04-01", active: true },
+    { id: uid(), name: "Spotify", amount: 10.99, frequency: "monthly", category: "Entertainment", nextBillDate: "2026-04-05", active: true },
+  ]));
+  const [subDraft, setSubDraft] = useState(null);
+  const [editingSubId, setEditingSubId] = useState(null);
+  const addSub = (s) => { setSubscriptions([...subscriptions, { ...s, id: uid(), active: true }]); setSubDraft(null); setEditingSubId(null); };
+  const removeSub = (id) => setSubscriptions(subscriptions.filter(s => s.id !== id));
+  const updateSub = (id, updates) => { setSubscriptions(subscriptions.map(s => s.id === id ? { ...s, ...updates } : s)); setEditingSubId(null); setSubDraft(null); };
+  const startEditSub = (s) => { setSubDraft({ name: s.name, amount: s.amount, frequency: s.frequency, category: s.category, nextBillDate: s.nextBillDate }); setEditingSubId(s.id); };
+  const toggleSub = (id) => setSubscriptions(subscriptions.map(s => s.id === id ? { ...s, active: !s.active } : s));
+
+  // Bill Calendar view mode
+  const [billCalendarView, setBillCalendarView] = useState(false);
+
+  // ═══════════════════════════════════════════════════════════════════════
   // GLOBAL SEARCH
   // ═══════════════════════════════════════════════════════════════════════
   const [globalSearch, setGlobalSearch] = useState("");
@@ -458,7 +479,7 @@ export default function PaycheckPlanner() {
         plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth,
         customCategories, categoryBudgets, darkMode, activeTheme,
         assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
-        payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth
+        payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) { /* storage full or unavailable — silent fail */ }
@@ -466,7 +487,7 @@ export default function PaycheckPlanner() {
     plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth,
     customCategories, categoryBudgets, darkMode, activeTheme,
     assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
-    payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth]);
+    payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // DERIVED DATA for the viewed month
@@ -787,7 +808,7 @@ export default function PaycheckPlanner() {
       plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth,
       customCategories, categoryBudgets, darkMode, activeTheme,
       assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
-      payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth
+      payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -829,6 +850,7 @@ export default function PaycheckPlanner() {
         if (data.payCalcSettings) setPayCalcSettings(data.payCalcSettings);
         if (data.savingsTransactions) setSavingsTransactions(data.savingsTransactions);
         if (data.plannerOrderByMonth) setPlannerOrderByMonth(data.plannerOrderByMonth);
+        if (data.subscriptions) setSubscriptions(data.subscriptions);
         alert('Data imported successfully!');
       } catch (error) {
         alert('Error importing data: ' + error.message);
@@ -1526,14 +1548,14 @@ export default function PaycheckPlanner() {
 
       {/* Tab Navigation */}
       <nav className={`${dm('bg-white border-gray-100', 'bg-slate-900 border-slate-700')} border-b sticky top-[57px] z-20`}>
-        <div className="max-w-6xl mx-auto px-4 flex gap-1 overflow-x-auto">
+        <div className="max-w-6xl mx-auto px-4 flex gap-0.5 overflow-x-auto pb-px" style={{ WebkitOverflowScrolling: 'touch' }}>
           {TABS.map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
             return (
               <button key={t.id} onClick={() => setTab(t.id)}
-                className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${active ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
-                <Icon size={16} />{t.label}
+                className={`flex items-center gap-1 px-2.5 py-3 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${active ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+                <Icon size={14} />{t.label}
               </button>
             );
           })}
@@ -2318,6 +2340,70 @@ export default function PaycheckPlanner() {
               </Card>
             ))}
 
+            {/* Bill Calendar View */}
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} flex items-center gap-2`}><CalendarDays size={16} className="text-indigo-500" /> Bill Calendar — {monthLabel(viewYear, viewMonth)}</h3>
+                <button onClick={() => setBillCalendarView(!billCalendarView)} className={`text-xs px-2.5 py-1 rounded-lg transition ${dm('bg-gray-100 text-gray-600 hover:bg-gray-200', 'bg-slate-700 text-slate-300 hover:bg-slate-600')}`}>
+                  {billCalendarView ? 'Hide' : 'Show'}
+                </button>
+              </div>
+              {billCalendarView && (() => {
+                const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+                const firstDow = new Date(viewYear, viewMonth, 1).getDay();
+                const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                const billMap = {};
+                bills.forEach(b => { const d = b.dueDay <= daysInMonth ? b.dueDay : daysInMonth; if (!billMap[d]) billMap[d] = []; billMap[d].push(b); });
+                const debtMap = {};
+                debts.forEach(d => { const day = (d.dueDay || 1) <= daysInMonth ? (d.dueDay || 1) : daysInMonth; if (!debtMap[day]) debtMap[day] = []; debtMap[day].push(d); });
+                const subMap = {};
+                subscriptions.filter(s => s.active).forEach(s => {
+                  if (s.nextBillDate) { const nd = new Date(s.nextBillDate); if (nd.getMonth() === viewMonth && nd.getFullYear() === viewYear) { const day = nd.getDate(); if (!subMap[day]) subMap[day] = []; subMap[day].push(s); } }
+                });
+                const payDates = new Set();
+                paychecks.forEach(pc => { const d = new Date(pc.date); if (d.getMonth() === viewMonth && d.getFullYear() === viewYear) payDates.add(d.getDate()); });
+                const cells = [];
+                for (let i = 0; i < firstDow; i++) cells.push(null);
+                for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+                return (
+                  <div>
+                    <div className="grid grid-cols-7 gap-px mb-1">
+                      {dayNames.map(n => <div key={n} className={`text-[10px] font-semibold text-center py-1 ${dm('text-gray-400', 'text-gray-500')}`}>{n}</div>)}
+                    </div>
+                    <div className="grid grid-cols-7 gap-px">
+                      {cells.map((day, i) => {
+                        if (!day) return <div key={`e${i}`} className="h-16" />;
+                        const hasBill = billMap[day];
+                        const hasDebt = debtMap[day];
+                        const hasSub = subMap[day];
+                        const isPay = payDates.has(day);
+                        const isToday = day === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear();
+                        return (
+                          <div key={day} className={`h-16 rounded-lg p-1 text-[10px] border transition ${isToday ? dm('border-indigo-400 bg-indigo-50', 'border-indigo-500 bg-indigo-950/30') : dm('border-gray-100 bg-gray-50/50', 'border-slate-700 bg-slate-800/50')}`}>
+                            <div className="flex items-center justify-between">
+                              <span className={`font-semibold ${isToday ? 'text-indigo-600' : dm('text-gray-600', 'text-gray-400')}`}>{day}</span>
+                              {isPay && <span className="w-1.5 h-1.5 rounded-full bg-green-500" title="Payday" />}
+                            </div>
+                            <div className="space-y-px mt-0.5 overflow-hidden max-h-[36px]">
+                              {hasBill && hasBill.map(b => <div key={b.id} className="truncate text-[9px] text-amber-700 bg-amber-100 rounded px-0.5">{b.name}</div>)}
+                              {hasDebt && hasDebt.map(d => <div key={d.id} className="truncate text-[9px] text-rose-700 bg-rose-100 rounded px-0.5">{d.name}</div>)}
+                              {hasSub && hasSub.map(s => <div key={s.id} className="truncate text-[9px] text-purple-700 bg-purple-100 rounded px-0.5">{s.name}</div>)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center gap-4 mt-2 text-[10px]">
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-400" /> Bills</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-rose-400" /> Debts</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-purple-400" /> Subs</span>
+                      <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Payday</span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </Card>
+
             <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="bg-amber-50/50 border-amber-200">
               <div className="flex items-start gap-2.5">
                 <AlertCircle size={18} className="text-amber-500 mt-0.5 flex-shrink-0" />
@@ -2512,7 +2598,7 @@ export default function PaycheckPlanner() {
           <>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-gray-900">Expenses — {monthLabel(viewYear, viewMonth)}</h2>
-              <button onClick={() => setExpDraft({ description: "", amount: "", category: "Other", date: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(Math.min(today.getDate(), new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0")}` })}
+              <button onClick={() => setExpDraft({ description: "", amount: "", category: "Other", date: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(Math.min(today.getDate(), new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0")}`, merchant: "" })}
                 className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-indigo-700 transition">
                 <Plus size={16} /> Add Expense
               </button>
@@ -2587,34 +2673,49 @@ export default function PaycheckPlanner() {
                     const isOverBudget = spent > budgetAmount;
                     const pctSpent = pct(spent, budgetAmount);
                     return (
-                      <div key={catName} className={`p-3 rounded-lg ${dm('bg-gray-50', 'bg-slate-700/50')}`}>
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex-1">
-                            <h4 className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')}`}>{catName}</h4>
-                            <div className="flex gap-4 text-xs mt-1">
-                              <span className={dm('text-gray-600', 'text-gray-400')}>Target: {fmt(budgetAmount)}</span>
-                              <span className={`font-medium ${isOverBudget ? 'text-rose-500' : dm('text-emerald-600', 'text-emerald-400')}`}>Spent: {fmt(spent)}</span>
+                      <SwipeRow key={catName} darkMode={darkMode}
+                        isOpen={swipedItemId === `budget-${catName}`}
+                        onToggle={(open) => setSwipedItemId(open ? `budget-${catName}` : null)}
+                        actions={[
+                          { label: "Edit", icon: <Settings size={16} />, onClick: () => { setBudgetDraft({ category: catName, amount: budgetAmount }); setEditingBudgetCat(catName); }, className: "bg-indigo-500" },
+                          { label: "Delete", icon: <Trash2 size={16} />, onClick: () => { const nb = { ...categoryBudgets }; delete nb[catName]; setCategoryBudgets(nb); }, className: "bg-rose-500" },
+                        ]}>
+                        {editingBudgetCat === catName && budgetDraft ? (
+                          <div className={`p-3 rounded-lg ${dm('bg-indigo-50', 'bg-slate-700/50')} space-y-2`}>
+                            <div className="flex gap-2 items-center">
+                              <span className={`text-sm font-medium flex-1 ${dm('text-gray-700', 'text-gray-200')}`}>{catName}</span>
+                              <div className="relative w-28">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                                <input type="number" value={budgetDraft.amount} onChange={(e) => setBudgetDraft({ ...budgetDraft, amount: e.target.value })}
+                                  className="w-full pl-6 pr-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                              </div>
+                              <button onClick={() => { if (budgetDraft.amount) { setCategoryBudgets({ ...categoryBudgets, [catName]: +budgetDraft.amount }); setEditingBudgetCat(null); setBudgetDraft(null); } }}
+                                className="p-1.5 bg-indigo-600 text-white rounded-lg"><Check size={14} /></button>
+                              <button onClick={() => { setEditingBudgetCat(null); setBudgetDraft(null); }}
+                                className="p-1.5 text-gray-400 hover:text-gray-600"><X size={14} /></button>
                             </div>
                           </div>
-                          <button
-                            onClick={() => {
-                              const newBudgets = { ...categoryBudgets };
-                              delete newBudgets[catName];
-                              setCategoryBudgets(newBudgets);
-                            }}
-                            className={`p-1 flex-shrink-0 rounded hover:${dm('bg-gray-200', 'bg-slate-600')}`}
-                          >
-                            <Trash2 size={14} className="text-rose-500" />
-                          </button>
-                        </div>
-                        <ProgressBar value={spent} max={budgetAmount} color={isOverBudget ? "#f43f5e" : "#6366f1"} height={6} />
-                        {isOverBudget && (
-                          <div className={`flex items-center gap-1.5 mt-2 px-2 py-1.5 rounded-md text-xs font-medium ${dm('bg-rose-50 text-rose-600', 'bg-rose-950/30 text-rose-400')}`}>
-                            <AlertCircle size={12} />
-                            <span>Over budget by {fmt(spent - budgetAmount)}</span>
+                        ) : (
+                          <div className={`p-3 rounded-lg ${dm('bg-gray-50', 'bg-slate-700/50')}`}>
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex-1">
+                                <h4 className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')}`}>{catName}</h4>
+                                <div className="flex gap-4 text-xs mt-1">
+                                  <span className={dm('text-gray-600', 'text-gray-400')}>Target: {fmt(budgetAmount)}</span>
+                                  <span className={`font-medium ${isOverBudget ? 'text-rose-500' : dm('text-emerald-600', 'text-emerald-400')}`}>Spent: {fmt(spent)}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <ProgressBar value={spent} max={budgetAmount} color={isOverBudget ? "#f43f5e" : "#6366f1"} height={6} />
+                            {isOverBudget && (
+                              <div className={`flex items-center gap-1.5 mt-2 px-2 py-1.5 rounded-md text-xs font-medium ${dm('bg-rose-50 text-rose-600', 'bg-rose-950/30 text-rose-400')}`}>
+                                <AlertCircle size={12} />
+                                <span>Over budget by {fmt(spent - budgetAmount)}</span>
+                              </div>
+                            )}
                           </div>
                         )}
-                      </div>
+                      </SwipeRow>
                     );
                   })}
                 </div>
@@ -2653,6 +2754,7 @@ export default function PaycheckPlanner() {
                         if (budgetDraft.category && budgetDraft.amount) {
                           setCategoryBudgets({ ...categoryBudgets, [budgetDraft.category]: +budgetDraft.amount });
                           setBudgetDraft(null);
+                          setEditingBudgetCat(null);
                         }
                       }}
                       className="flex-1 px-2 py-1.5 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700"
@@ -2706,8 +2808,10 @@ export default function PaycheckPlanner() {
             {expDraft && (
               <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="border-indigo-200 bg-indigo-50/30">
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                     <input placeholder="Description" value={expDraft.description} onChange={(e) => setExpDraft({ ...expDraft, description: e.target.value })}
+                      className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    <input placeholder="Merchant (optional)" value={expDraft.merchant || ""} onChange={(e) => setExpDraft({ ...expDraft, merchant: e.target.value })}
                       className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
@@ -2806,7 +2910,7 @@ export default function PaycheckPlanner() {
                                 <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')} truncate`}>{e.description}</p>
                               </div>
                               <p className="text-xs text-gray-400 truncate">
-                                {e.category}
+                                {e.merchant ? `${e.merchant} · ` : ''}{e.category}
                                 {e.goalId && (() => { const goal = goals.find((g) => g.id === e.goalId); return goal ? ` · ${goal.name} (${pct(goal.saved, goal.target)}%)` : ""; })()}
                               </p>
                             </div>
@@ -2824,7 +2928,7 @@ export default function PaycheckPlanner() {
                               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 ${typeBadge.bg} ${typeBadge.text}`}>{typeBadge.label}</span>
                             </div>
                             <p className="text-xs text-gray-400 truncate">
-                              {e.category}
+                              {e.merchant ? `${e.merchant} · ` : ''}{e.category}
                               {e.goalId && (() => { const goal = goals.find((g) => g.id === e.goalId); return goal ? ` · ${goal.name} (${pct(goal.saved, goal.target)}%)` : ""; })()}
                             </p>
                           </div>
@@ -4004,6 +4108,368 @@ export default function PaycheckPlanner() {
           </>
         )}
 
+        {/* ═══════ SUBSCRIPTIONS TAB ═══════ */}
+        {tab === "subscriptions" && (() => {
+          const activeSubs = subscriptions.filter(s => s.active);
+          const pausedSubs = subscriptions.filter(s => !s.active);
+          const monthlyTotal = activeSubs.reduce((sum, s) => {
+            if (s.frequency === "monthly") return sum + s.amount;
+            if (s.frequency === "yearly") return sum + s.amount / 12;
+            if (s.frequency === "weekly") return sum + s.amount * 4.33;
+            if (s.frequency === "quarterly") return sum + s.amount / 3;
+            return sum + s.amount;
+          }, 0);
+          const yearlyTotal = monthlyTotal * 12;
+          const byCat = {};
+          activeSubs.forEach(s => { byCat[s.category] = (byCat[s.category] || 0) + (s.frequency === "monthly" ? s.amount : s.frequency === "yearly" ? s.amount / 12 : s.frequency === "weekly" ? s.amount * 4.33 : s.frequency === "quarterly" ? s.amount / 3 : s.amount); });
+          const catData = Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([name, value], i) => ({ name, value: Math.round(value * 100) / 100, fill: COLORS[i % COLORS.length] }));
+          return (
+            <>
+              <div className="flex items-center justify-between">
+                <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')}`}>Subscriptions</h2>
+                <button onClick={() => { setSubDraft({ name: "", amount: "", frequency: "monthly", category: "Subscriptions", nextBillDate: "" }); setEditingSubId(null); }}
+                  className="flex items-center gap-1.5 bg-purple-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-purple-700 transition">
+                  <Plus size={16} /> Add Sub
+                </button>
+              </div>
+
+              {/* Monthly & Annual Rollup */}
+              <div className="grid grid-cols-2 gap-3">
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <div className="text-center">
+                    <p className={`text-xs font-medium ${dm('text-gray-500', 'text-gray-400')}`}>Monthly Cost</p>
+                    <p className={`text-2xl font-bold ${dm('text-purple-700', 'text-purple-400')}`}>{fmt(monthlyTotal)}</p>
+                    <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>{activeSubs.length} active subscription{activeSubs.length !== 1 ? 's' : ''}</p>
+                  </div>
+                </Card>
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <div className="text-center">
+                    <p className={`text-xs font-medium ${dm('text-gray-500', 'text-gray-400')}`}>Annual Cost</p>
+                    <p className={`text-2xl font-bold ${dm('text-rose-600', 'text-rose-400')}`}>{fmt(yearlyTotal)}</p>
+                    <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>{pct(monthlyTotal, monthlyIncome)}% of monthly income</p>
+                  </div>
+                </Card>
+              </div>
+
+              {/* Spending by category pie */}
+              {catData.length > 0 && (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Cost by Category</h3>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <PieChart><Pie data={catData} dataKey="value" cx="50%" cy="50%" outerRadius={70} innerRadius={40} paddingAngle={3}>
+                      {catData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+                    </Pie><Tooltip formatter={(v) => fmt(v)} /><Legend /></PieChart>
+                  </ResponsiveContainer>
+                </Card>
+              )}
+
+              {/* Add/Edit form */}
+              {subDraft && (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="border-purple-200 bg-purple-50/30">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <input placeholder="Service name" value={subDraft.name} onChange={(e) => setSubDraft({ ...subDraft, name: e.target.value })}
+                      className="col-span-2 sm:col-span-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                      <input type="number" placeholder="Amount" value={subDraft.amount} onChange={(e) => setSubDraft({ ...subDraft, amount: e.target.value })}
+                        className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                    </div>
+                    <select value={subDraft.frequency} onChange={(e) => setSubDraft({ ...subDraft, frequency: e.target.value })}
+                      className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white">
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="quarterly">Quarterly</option>
+                    </select>
+                    <select value={subDraft.category} onChange={(e) => setSubDraft({ ...subDraft, category: e.target.value })}
+                      className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white">
+                      {EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                    </select>
+                    <input type="date" value={subDraft.nextBillDate} onChange={(e) => setSubDraft({ ...subDraft, nextBillDate: e.target.value })}
+                      className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                    <div className="flex gap-2">
+                      <button onClick={() => { if (subDraft.name && subDraft.amount) { if (editingSubId) updateSub(editingSubId, { ...subDraft, amount: +subDraft.amount }); else addSub({ ...subDraft, amount: +subDraft.amount }); } }}
+                        className="flex-1 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition flex items-center justify-center gap-1"><Check size={14} /> {editingSubId ? 'Update' : 'Save'}</button>
+                      <button onClick={() => { setSubDraft(null); setEditingSubId(null); }} className="px-3 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                    </div>
+                  </div>
+                </Card>
+              )}
+
+              {/* Active subs list */}
+              {activeSubs.length > 0 && (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3 flex items-center gap-2`}><Repeat size={15} className="text-purple-500" /> Active Subscriptions</h3>
+                  <div className="space-y-2">
+                    {activeSubs.map(s => (
+                      <SwipeRow key={s.id} darkMode={darkMode}
+                        isOpen={swipedItemId === `sub-${s.id}`}
+                        onToggle={(open) => setSwipedItemId(open ? `sub-${s.id}` : null)}
+                        actions={[
+                          { label: "Edit", icon: <Settings size={16} />, onClick: () => startEditSub(s), className: "bg-purple-500" },
+                          { label: "Pause", icon: <X size={16} />, onClick: () => toggleSub(s.id), className: "bg-amber-500" },
+                          { label: "Delete", icon: <Trash2 size={16} />, onClick: () => removeSub(s.id), className: "bg-rose-500" },
+                        ]}>
+                        <div className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-700')} transition`}>
+                          <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center"><Repeat size={14} /></div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')}`}>{s.name}</p>
+                            <p className="text-xs text-gray-400">{s.category} · {s.frequency}{s.nextBillDate ? ` · Next: ${new Date(s.nextBillDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</p>
+                          </div>
+                          <div className="text-right">
+                            <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>{fmt(s.amount)}</span>
+                            <p className="text-[10px] text-gray-400">/{s.frequency === 'yearly' ? 'yr' : s.frequency === 'quarterly' ? 'qtr' : s.frequency === 'weekly' ? 'wk' : 'mo'}</p>
+                          </div>
+                        </div>
+                      </SwipeRow>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
+              {/* Paused subs */}
+              {pausedSubs.length > 0 && (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <h3 className={`text-sm font-bold ${dm('text-gray-500', 'text-gray-400')} mb-3`}>Paused ({pausedSubs.length})</h3>
+                  <div className="space-y-2 opacity-60">
+                    {pausedSubs.map(s => (
+                      <div key={s.id} className={`flex items-center gap-3 py-2 px-3 rounded-lg`}>
+                        <div className="w-8 h-8 rounded-lg bg-gray-100 text-gray-400 flex items-center justify-center"><Repeat size={14} /></div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-medium ${dm('text-gray-500', 'text-gray-500')} line-through`}>{s.name}</p>
+                          <p className="text-xs text-gray-400">{fmt(s.amount)}/{s.frequency === 'yearly' ? 'yr' : 'mo'}</p>
+                        </div>
+                        <button onClick={() => toggleSub(s.id)} className="text-xs text-indigo-500 font-medium hover:text-indigo-700">Resume</button>
+                        <button onClick={() => removeSub(s.id)} className="text-xs text-rose-400 hover:text-rose-600"><Trash2 size={14} /></button>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
+              {activeSubs.length === 0 && pausedSubs.length === 0 && (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <div className="text-center py-8 text-gray-400">
+                    <Repeat size={32} className="mx-auto mb-2 opacity-40" />
+                    <p className="text-sm">No subscriptions yet. Add your first one above.</p>
+                  </div>
+                </Card>
+              )}
+            </>
+          );
+        })()}
+
+        {/* ═══════ INSIGHTS TAB ═══════ */}
+        {tab === "insights" && (() => {
+          const curExpenses = expenses;
+          const curTotal = curExpenses.reduce((s, e) => s + e.amount, 0);
+          const prevKey = viewMonth === 0 ? monthKey(viewYear - 1, 11) : monthKey(viewYear, viewMonth - 1);
+          const prevExpenses = expensesByMonth[prevKey] || [];
+          const prevTotal = prevExpenses.reduce((s, e) => s + e.amount, 0);
+
+          // Category breakdown comparison
+          const curByCat = {};
+          curExpenses.forEach(e => { curByCat[e.category] = (curByCat[e.category] || 0) + e.amount; });
+          const prevByCat = {};
+          prevExpenses.forEach(e => { prevByCat[e.category] = (prevByCat[e.category] || 0) + e.amount; });
+
+          const allCats = [...new Set([...Object.keys(curByCat), ...Object.keys(prevByCat)])];
+          const catInsights = allCats.map(cat => {
+            const cur = curByCat[cat] || 0;
+            const prev = prevByCat[cat] || 0;
+            const change = prev > 0 ? ((cur - prev) / prev * 100) : cur > 0 ? 100 : 0;
+            return { cat, cur, prev, change };
+          }).sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+
+          // Budget adherence
+          const budgetInsights = Object.entries(categoryBudgets).map(([cat, budget]) => {
+            const spent = curByCat[cat] || 0;
+            return { cat, budget, spent, pctUsed: budget > 0 ? Math.round(spent / budget * 100) : 0 };
+          }).sort((a, b) => b.pctUsed - a.pctUsed);
+
+          // Bills vs discretionary
+          const billsTotal = totalBills + debts.reduce((s, d) => s + d.minPayment + d.extraPayment, 0) + subscriptions.filter(s => s.active).reduce((sum, s) => sum + (s.frequency === 'monthly' ? s.amount : s.frequency === 'yearly' ? s.amount / 12 : s.frequency === 'weekly' ? s.amount * 4.33 : s.amount / 3), 0);
+          const discretionary = curTotal;
+          const savingsTotal = goals.reduce((s, g) => s + g.monthlyContribution, 0);
+          const totalOut = billsTotal + discretionary + savingsTotal;
+          const needsPct = monthlyIncome > 0 ? Math.round(billsTotal / monthlyIncome * 100) : 0;
+          const wantsPct = monthlyIncome > 0 ? Math.round(discretionary / monthlyIncome * 100) : 0;
+          const savesPct = monthlyIncome > 0 ? Math.round(savingsTotal / monthlyIncome * 100) : 0;
+
+          // Streaks
+          const monthsUnderBudget = (() => {
+            let streak = 0;
+            for (let i = 0; i < 12; i++) {
+              const m = viewMonth - i < 0 ? viewMonth - i + 12 : viewMonth - i;
+              const y = viewMonth - i < 0 ? viewYear - 1 : viewYear;
+              const mk = monthKey(y, m);
+              const me = (expensesByMonth[mk] || []).reduce((s, e) => s + e.amount, 0);
+              if (me + billsTotal <= monthlyIncome && monthlyIncome > 0) streak++;
+              else break;
+            }
+            return streak;
+          })();
+
+          return (
+            <>
+              <div className="flex items-center justify-between">
+                <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')} flex items-center gap-2`}><Sparkles size={20} className="text-amber-500" /> Spending Insights</h2>
+                <span className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>{monthLabel(viewYear, viewMonth)}</span>
+              </div>
+
+              {/* Monthly Report Card */}
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Monthly Report Card</h3>
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <div className={`text-center p-3 rounded-xl ${dm('bg-blue-50', 'bg-blue-950/30')}`}>
+                    <p className={`text-[10px] font-semibold uppercase ${dm('text-blue-600', 'text-blue-400')}`}>Needs</p>
+                    <p className={`text-xl font-bold ${dm('text-blue-700', 'text-blue-300')}`}>{needsPct}%</p>
+                    <p className={`text-[10px] ${needsPct <= 50 ? 'text-green-500' : 'text-amber-500'}`}>{needsPct <= 50 ? '✓ On target' : 'Above 50%'}</p>
+                  </div>
+                  <div className={`text-center p-3 rounded-xl ${dm('bg-purple-50', 'bg-purple-950/30')}`}>
+                    <p className={`text-[10px] font-semibold uppercase ${dm('text-purple-600', 'text-purple-400')}`}>Wants</p>
+                    <p className={`text-xl font-bold ${dm('text-purple-700', 'text-purple-300')}`}>{wantsPct}%</p>
+                    <p className={`text-[10px] ${wantsPct <= 30 ? 'text-green-500' : 'text-amber-500'}`}>{wantsPct <= 30 ? '✓ On target' : 'Above 30%'}</p>
+                  </div>
+                  <div className={`text-center p-3 rounded-xl ${dm('bg-emerald-50', 'bg-emerald-950/30')}`}>
+                    <p className={`text-[10px] font-semibold uppercase ${dm('text-emerald-600', 'text-emerald-400')}`}>Savings</p>
+                    <p className={`text-xl font-bold ${dm('text-emerald-700', 'text-emerald-300')}`}>{savesPct}%</p>
+                    <p className={`text-[10px] ${savesPct >= 20 ? 'text-green-500' : 'text-amber-500'}`}>{savesPct >= 20 ? '✓ On target' : 'Below 20%'}</p>
+                  </div>
+                </div>
+                <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')} text-center`}>Based on the 50/30/20 rule (Needs / Wants / Savings)</p>
+              </Card>
+
+              {/* Month-over-Month */}
+              {prevTotal > 0 && (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Month-over-Month</h3>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className={`flex-1 p-3 rounded-xl text-center ${curTotal <= prevTotal ? dm('bg-green-50', 'bg-green-950/30') : dm('bg-rose-50', 'bg-rose-950/30')}`}>
+                      <p className={`text-lg font-bold ${curTotal <= prevTotal ? 'text-green-600' : 'text-rose-600'}`}>
+                        {curTotal <= prevTotal ? '↓' : '↑'} {Math.abs(Math.round((curTotal - prevTotal) / prevTotal * 100))}%
+                      </p>
+                      <p className={`text-[10px] ${dm('text-gray-500', 'text-gray-400')}`}>{curTotal <= prevTotal ? `You spent ${fmt(prevTotal - curTotal)} less` : `You spent ${fmt(curTotal - prevTotal)} more`}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Last month</p>
+                      <p className={`text-sm font-semibold ${dm('text-gray-600', 'text-gray-300')}`}>{fmt(prevTotal)}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>This month</p>
+                      <p className={`text-sm font-semibold ${dm('text-gray-600', 'text-gray-300')}`}>{fmt(curTotal)}</p>
+                    </div>
+                  </div>
+                </Card>
+              )}
+
+              {/* Top Merchants */}
+              {(() => {
+                const merchantMap = {};
+                curExpenses.forEach(e => {
+                  const m = (e.merchant || '').trim();
+                  if (m) { if (!merchantMap[m]) merchantMap[m] = { total: 0, count: 0 }; merchantMap[m].total += e.amount; merchantMap[m].count++; }
+                });
+                const topMerchants = Object.entries(merchantMap).sort((a, b) => b[1].total - a[1].total).slice(0, 8);
+                if (topMerchants.length === 0) return null;
+                const maxVal = topMerchants[0]?.[1].total || 1;
+                return (
+                  <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                    <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3 flex items-center gap-2`}><Target size={15} className="text-indigo-500" /> Top Merchants</h3>
+                    <div className="space-y-2.5">
+                      {topMerchants.map(([name, data], i) => (
+                        <div key={name}>
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center ${i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-gray-100 text-gray-600' : i === 2 ? 'bg-orange-100 text-orange-700' : dm('bg-gray-50 text-gray-500', 'bg-slate-700 text-gray-400')}`}>{i + 1}</span>
+                              <span className={`text-sm font-medium ${dm('text-gray-700', 'text-gray-300')}`}>{name}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>{fmt(data.total)}</span>
+                              <span className={`text-[10px] ml-1.5 ${dm('text-gray-400', 'text-gray-500')}`}>{data.count} txn{data.count !== 1 ? 's' : ''}</span>
+                            </div>
+                          </div>
+                          <div className={`h-1.5 rounded-full ${dm('bg-gray-100', 'bg-slate-700')} overflow-hidden`}>
+                            <div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${(data.total / maxVal) * 100}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                );
+              })()}
+
+              {/* Category Trends */}
+              {catInsights.filter(c => c.change !== 0).length > 0 && (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Category Trends vs Last Month</h3>
+                  <div className="space-y-2">
+                    {catInsights.filter(c => c.prev > 0 || c.cur > 0).slice(0, 6).map(c => (
+                      <div key={c.cat} className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('bg-gray-50', 'bg-slate-800/50')}`}>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-medium ${dm('text-gray-700', 'text-gray-300')}`}>{c.cat}</p>
+                          <p className="text-[10px] text-gray-400">{fmt(c.prev)} → {fmt(c.cur)}</p>
+                        </div>
+                        <span className={`text-sm font-bold ${c.change <= 0 ? 'text-green-500' : 'text-rose-500'}`}>
+                          {c.change > 0 ? '+' : ''}{Math.round(c.change)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
+              {/* Budget Adherence */}
+              {budgetInsights.length > 0 && (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Budget Adherence</h3>
+                  <div className="space-y-3">
+                    {budgetInsights.map(b => (
+                      <div key={b.cat}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-xs font-medium ${dm('text-gray-700', 'text-gray-300')}`}>{b.cat}</span>
+                          <span className={`text-xs font-semibold ${b.pctUsed <= 100 ? dm('text-gray-500', 'text-gray-400') : 'text-rose-500'}`}>{fmt(b.spent)} / {fmt(b.budget)}</span>
+                        </div>
+                        <div className={`h-2 rounded-full ${dm('bg-gray-100', 'bg-slate-700')} overflow-hidden`}>
+                          <div className={`h-full rounded-full transition-all ${b.pctUsed <= 75 ? 'bg-green-500' : b.pctUsed <= 100 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                            style={{ width: `${Math.min(b.pctUsed, 100)}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
+              {/* Streaks & Badges */}
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Achievements</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className={`p-3 rounded-xl text-center ${monthsUnderBudget >= 1 ? dm('bg-amber-50', 'bg-amber-950/30') : dm('bg-gray-50', 'bg-slate-800/50')}`}>
+                    <p className="text-2xl mb-1">{monthsUnderBudget >= 3 ? '🔥' : monthsUnderBudget >= 1 ? '✨' : '🎯'}</p>
+                    <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{monthsUnderBudget} Month Streak</p>
+                    <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>Under budget</p>
+                  </div>
+                  <div className={`p-3 rounded-xl text-center ${goals.some(g => g.saved >= g.target) ? dm('bg-green-50', 'bg-green-950/30') : dm('bg-gray-50', 'bg-slate-800/50')}`}>
+                    <p className="text-2xl mb-1">{goals.filter(g => g.saved >= g.target).length > 0 ? '🏆' : '🎯'}</p>
+                    <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{goals.filter(g => g.saved >= g.target).length} Goals Hit</p>
+                    <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>Savings targets met</p>
+                  </div>
+                  <div className={`p-3 rounded-xl text-center ${dm('bg-indigo-50', 'bg-indigo-950/30')}`}>
+                    <p className="text-2xl mb-1">{subscriptions.filter(s => !s.active).length > 0 ? '💪' : '📋'}</p>
+                    <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{subscriptions.filter(s => !s.active).length} Subs Paused</p>
+                    <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>Saving {fmt(subscriptions.filter(s => !s.active).reduce((sum, s) => sum + s.amount, 0))}/mo</p>
+                  </div>
+                  <div className={`p-3 rounded-xl text-center ${dm('bg-purple-50', 'bg-purple-950/30')}`}>
+                    <p className="text-2xl mb-1">{savesPct >= 20 ? '💰' : '📈'}</p>
+                    <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{savesPct}% Savings Rate</p>
+                    <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>{savesPct >= 20 ? 'Excellent!' : 'Goal: 20%+'}</p>
+                  </div>
+                </div>
+              </Card>
+            </>
+          );
+        })()}
+
         {/* ═══════ YEAR TAB ═══════ */}
         {tab === "yearly" && (() => {
           const curTotals = { income: yearData.reduce((s, m) => s + m.income, 0), expenses: yearData.reduce((s, m) => s + m.expenses, 0), savings: yearData.reduce((s, m) => s + m.savings, 0), net: yearData.reduce((s, m) => s + m.net, 0) };
@@ -4159,7 +4625,7 @@ export default function PaycheckPlanner() {
 
       {/* ═══════ FLOATING QUICK-ADD EXPENSE BUTTON ═══════ */}
       {!quickAdd && (
-        <button onClick={() => setQuickAdd({ description: "", amount: "", category: "Other", date: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(Math.min(today.getDate(), new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0")}` })}
+        <button onClick={() => setQuickAdd({ description: "", amount: "", category: "Other", date: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(Math.min(today.getDate(), new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0")}`, merchant: "" })}
           className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg shadow-indigo-200 hover:bg-indigo-700 hover:shadow-xl transition-all flex items-center justify-center group"
           title="Quick add expense">
           <Plus size={24} className="group-hover:rotate-90 transition-transform" />
@@ -4175,6 +4641,8 @@ export default function PaycheckPlanner() {
           <div className="space-y-2.5">
             <input placeholder="What did you spend on?" value={quickAdd.description} onChange={(e) => setQuickAdd({ ...quickAdd, description: e.target.value })}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" autoFocus />
+            <input placeholder="Merchant (optional)" value={quickAdd.merchant || ""} onChange={(e) => setQuickAdd({ ...quickAdd, merchant: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
               <input type="number" placeholder="Amount" value={quickAdd.amount} onChange={(e) => setQuickAdd({ ...quickAdd, amount: e.target.value })}
