@@ -265,12 +265,16 @@ function buildPlannerItemsForMonth(year, month, incomeSources, bills, debts, goa
 const STORAGE_KEY = "maverick-finance-data";
 const loadSaved = () => {
   try {
+    if (typeof localStorage === 'undefined') return null;
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
 };
 const savedData = loadSaved();
-const init = (key, fallback) => savedData && savedData[key] !== undefined ? savedData[key] : fallback;
+const init = (key, fallback) => {
+  if (!savedData || savedData[key] === undefined || savedData[key] === null) return fallback;
+  return savedData[key];
+};
 
 export default function PaycheckPlanner() {
   const today = new Date();
@@ -4261,17 +4265,18 @@ export default function PaycheckPlanner() {
 
         {/* ═══════ INSIGHTS TAB ═══════ */}
         {tab === "insights" && (() => {
-          const curExpenses = expenses;
-          const curTotal = curExpenses.reduce((s, e) => s + e.amount, 0);
+          try {
+          const curExpenses = manualExpenses || [];
+          const curTotal = curExpenses.reduce((s, e) => s + (e.amount || 0), 0);
           const prevKey = viewMonth === 0 ? monthKey(viewYear - 1, 11) : monthKey(viewYear, viewMonth - 1);
           const prevExpenses = expensesByMonth[prevKey] || [];
-          const prevTotal = prevExpenses.reduce((s, e) => s + e.amount, 0);
+          const prevTotal = prevExpenses.reduce((s, e) => s + (e.amount || 0), 0);
 
           // Category breakdown comparison
           const curByCat = {};
-          curExpenses.forEach(e => { curByCat[e.category] = (curByCat[e.category] || 0) + e.amount; });
+          curExpenses.forEach(e => { if (e.category) curByCat[e.category] = (curByCat[e.category] || 0) + (e.amount || 0); });
           const prevByCat = {};
-          prevExpenses.forEach(e => { prevByCat[e.category] = (prevByCat[e.category] || 0) + e.amount; });
+          prevExpenses.forEach(e => { if (e.category) prevByCat[e.category] = (prevByCat[e.category] || 0) + (e.amount || 0); });
 
           const allCats = [...new Set([...Object.keys(curByCat), ...Object.keys(prevByCat)])];
           const catInsights = allCats.map(cat => {
@@ -4282,17 +4287,18 @@ export default function PaycheckPlanner() {
           }).sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
 
           // Budget adherence
-          const budgetInsights = Object.entries(categoryBudgets).map(([cat, budget]) => {
+          const budgetInsights = Object.entries(categoryBudgets || {}).map(([cat, budget]) => {
             const spent = curByCat[cat] || 0;
             return { cat, budget, spent, pctUsed: budget > 0 ? Math.round(spent / budget * 100) : 0 };
           }).sort((a, b) => b.pctUsed - a.pctUsed);
 
           // Bills vs discretionary
-          const billsTotal = totalBills + debts.reduce((s, d) => s + d.minPayment + d.extraPayment, 0) + subscriptions.filter(s => s.active).reduce((sum, s) => sum + (s.frequency === 'monthly' ? s.amount : s.frequency === 'yearly' ? s.amount / 12 : s.frequency === 'weekly' ? s.amount * 4.33 : s.amount / 3), 0);
+          const activeSubs = (subscriptions || []).filter(s => s && s.active);
+          const subsCost = activeSubs.reduce((sum, s) => sum + (s.frequency === 'monthly' ? s.amount : s.frequency === 'yearly' ? s.amount / 12 : s.frequency === 'weekly' ? s.amount * 4.33 : s.frequency === 'quarterly' ? s.amount / 3 : s.amount), 0);
+          const fixedBills = totalBills + debts.reduce((s, d) => s + (d.minPayment || 0) + (d.extraPayment || 0), 0) + subsCost;
           const discretionary = curTotal;
-          const savingsTotal = goals.reduce((s, g) => s + g.monthlyContribution, 0);
-          const totalOut = billsTotal + discretionary + savingsTotal;
-          const needsPct = monthlyIncome > 0 ? Math.round(billsTotal / monthlyIncome * 100) : 0;
+          const savingsTotal = goals.reduce((s, g) => s + (g.monthlyContribution || 0), 0);
+          const needsPct = monthlyIncome > 0 ? Math.round(fixedBills / monthlyIncome * 100) : 0;
           const wantsPct = monthlyIncome > 0 ? Math.round(discretionary / monthlyIncome * 100) : 0;
           const savesPct = monthlyIncome > 0 ? Math.round(savingsTotal / monthlyIncome * 100) : 0;
 
@@ -4303,8 +4309,8 @@ export default function PaycheckPlanner() {
               const m = viewMonth - i < 0 ? viewMonth - i + 12 : viewMonth - i;
               const y = viewMonth - i < 0 ? viewYear - 1 : viewYear;
               const mk = monthKey(y, m);
-              const me = (expensesByMonth[mk] || []).reduce((s, e) => s + e.amount, 0);
-              if (me + billsTotal <= monthlyIncome && monthlyIncome > 0) streak++;
+              const me = (expensesByMonth[mk] || []).reduce((s, e) => s + (e.amount || 0), 0);
+              if (me + fixedBills <= monthlyIncome && monthlyIncome > 0) streak++;
               else break;
             }
             return streak;
@@ -4455,9 +4461,9 @@ export default function PaycheckPlanner() {
                     <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>Savings targets met</p>
                   </div>
                   <div className={`p-3 rounded-xl text-center ${dm('bg-indigo-50', 'bg-indigo-950/30')}`}>
-                    <p className="text-2xl mb-1">{subscriptions.filter(s => !s.active).length > 0 ? '💪' : '📋'}</p>
-                    <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{subscriptions.filter(s => !s.active).length} Subs Paused</p>
-                    <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>Saving {fmt(subscriptions.filter(s => !s.active).reduce((sum, s) => sum + s.amount, 0))}/mo</p>
+                    <p className="text-2xl mb-1">{(subscriptions || []).filter(s => s && !s.active).length > 0 ? '💪' : '📋'}</p>
+                    <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{(subscriptions || []).filter(s => s && !s.active).length} Subs Paused</p>
+                    <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>Saving {fmt((subscriptions || []).filter(s => s && !s.active).reduce((sum, s) => sum + (s.amount || 0), 0))}/mo</p>
                   </div>
                   <div className={`p-3 rounded-xl text-center ${dm('bg-purple-50', 'bg-purple-950/30')}`}>
                     <p className="text-2xl mb-1">{savesPct >= 20 ? '💰' : '📈'}</p>
@@ -4468,6 +4474,9 @@ export default function PaycheckPlanner() {
               </Card>
             </>
           );
+          } catch(err) {
+            return <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}><p className={`text-sm ${dm('text-rose-600', 'text-rose-400')}`}>Unable to load insights. Try refreshing the page.</p></Card>;
+          }
         })()}
 
         {/* ═══════ YEAR TAB ═══════ */}
