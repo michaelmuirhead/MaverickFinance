@@ -13,22 +13,13 @@
       <stop offset="0%" stop-color="#fcd34d"/>
       <stop offset="100%" stop-color="#f59e0b"/>
     </linearGradient>
-    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="white" stop-opacity="0.18"/>
-      <stop offset="50%" stop-color="white" stop-opacity="0"/>
-    </linearGradient>
     <filter id="coinShadow">
-      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#065f46" flood-opacity="0.3"/>
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#065f46" flood-opacity="0.35"/>
     </filter>
   </defs>
 
-  <!-- Rounded square background -->
+  <!-- Rounded square background — solid green, no overlays -->
   <rect width="512" height="512" rx="112" ry="112" fill="url(#bgFriendly)"/>
-  <!-- Subtle top shine -->
-  <rect width="512" height="260" rx="112" ry="112" fill="url(#shine)"/>
-
-  <!-- Soft white glow behind coin -->
-  <circle cx="256" cy="222" r="130" fill="white" opacity="0.15"/>
 
   <!-- Coin outer ring -->
   <circle cx="256" cy="222" r="115" fill="url(#coinOuter)" filter="url(#coinShadow)"/>
@@ -37,7 +28,7 @@
   <!-- Coin inner face -->
   <circle cx="256" cy="222" r="94" fill="url(#coinInner)"/>
   <!-- Coin highlight arc -->
-  <path d="M190 180 A80 80 0 0 1 320 180" fill="none" stroke="white" stroke-width="2" opacity="0.25" stroke-linecap="round"/>
+  <path d="M190 180 A80 80 0 0 1 320 180" fill="none" stroke="white" stroke-width="2" opacity="0.2" stroke-linecap="round"/>
 
   <!-- Dollar sign -->
   <text x="256" y="252" text-anchor="middle" fill="#92400e"
@@ -48,11 +39,11 @@
   <polygon points="256,40 272,60 240,60" fill="white"/>
 
   <!-- Sparkles -->
-  <circle cx="152" cy="135" r="5" fill="white" opacity="0.8"/>
-  <circle cx="142" cy="145" r="2.5" fill="white" opacity="0.5"/>
-  <circle cx="365" cy="145" r="5" fill="white" opacity="0.8"/>
-  <circle cx="358" cy="135" r="2.5" fill="white" opacity="0.5"/>
-  <circle cx="380" cy="165" r="2" fill="white" opacity="0.4"/>
+  <circle cx="152" cy="135" r="5" fill="white" opacity="0.75"/>
+  <circle cx="142" cy="145" r="2.5" fill="white" opacity="0.45"/>
+  <circle cx="365" cy="145" r="5" fill="white" opacity="0.75"/>
+  <circle cx="358" cy="135" r="2.5" fill="white" opacity="0.45"/>
+  <circle cx="380" cy="165" r="2" fill="white" opacity="0.35"/>
 
   <!-- Maverick text -->
   <text x="256" y="400" text-anchor="middle" fill="white"
