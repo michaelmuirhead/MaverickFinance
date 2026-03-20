@@ -1,0 +1,3384 @@
+import { useState, useMemo } from "react";
+import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { DollarSign, TrendingUp, TrendingDown, Landmark, CreditCard, PiggyBank, Calendar, Plus, Trash2, Check, X, AlertCircle, Target, Wallet, Bell, ChevronLeft, ChevronRight, BarChart3, Zap, ClipboardList, Copy, CheckCircle, Circle, GripVertical, Sun, Moon, Settings, Download, Upload, StickyNote, Calculator, Clock, Heart, Shield, Search, ChevronDown, Minus, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+const pct = (a, b) => (b === 0 ? 0 : Math.round((a / b) * 100));
+const uid = () => Math.random().toString(36).slice(2, 10);
+const monthKey = (y, m) => `${y}-${String(m + 1).padStart(2, "0")}`;
+const monthLabel = (y, m) => new Date(y, m, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+const daysBetween = (a, b) => Math.round((b - a) / 86400000);
+
+const PAY_FREQUENCIES = [
+  { label: "Weekly", value: "weekly", days: 7 },
+  { label: "Biweekly", value: "biweekly", days: 14 },
+  { label: "Semi-monthly", value: "semimonthly", days: 0 },
+  { label: "Monthly", value: "monthly", days: 0 },
+];
+
+const EXPENSE_CATEGORIES = [
+  "Housing", "Utilities", "Transportation", "Food & Groceries",
+  "Insurance", "Healthcare", "Entertainment", "Subscriptions",
+  "Personal Care", "Education", "Childcare", "Clothing", "Debt Payment", "Savings", "Other"
+];
+
+const COLORS = [
+  "#6366f1", "#22d3ee", "#f59e0b", "#10b981", "#f43f5e",
+  "#8b5cf6", "#14b8a6", "#f97316", "#06b6d4", "#ec4899",
+  "#84cc16", "#a855f7", "#64748b"
+];
+
+const TABS = [
+  { id: "dashboard", label: "Dashboard", icon: Wallet },
+  { id: "planner", label: "Planner", icon: ClipboardList },
+  { id: "bills", label: "Bills", icon: Calendar },
+  { id: "savings", label: "Savings", icon: PiggyBank },
+  { id: "expenses", label: "Expenses", icon: DollarSign },
+  { id: "debt", label: "Debt", icon: CreditCard },
+  { id: "networth", label: "Net Worth", icon: Landmark },
+  { id: "paycalc", label: "Pay Calc", icon: Calculator },
+  { id: "health", label: "Health", icon: Heart },
+  { id: "yearly", label: "Year", icon: BarChart3 },
+];
+
+// ─── Generate paycheck dates for a given month ────────────────────────────
+function generatePayDates(source, year, month) {
+  const firstOfMonth = new Date(year, month, 1);
+  const lastOfMonth = new Date(year, month + 1, 0);
+  const results = [];
+
+  if (source.frequency === "monthly") {
+    // Pay on the reference day each month (or last day if month is shorter)
+    const refDay = new Date(source.referenceDate + "T12:00:00").getDate();
+    const day = Math.min(refDay, lastOfMonth.getDate());
+    results.push(new Date(year, month, day));
+  } else if (source.frequency === "semimonthly") {
+    // 1st and 15th (or reference-based: day and day+15, capped)
+    const refDay = new Date(source.referenceDate + "T12:00:00").getDate();
+    const day1 = Math.min(refDay, lastOfMonth.getDate());
+    const day2 = Math.min(refDay + 15 > 28 ? 15 : refDay + 15, lastOfMonth.getDate());
+    results.push(new Date(year, month, Math.min(day1, day2)));
+    results.push(new Date(year, month, Math.max(day1, day2)));
+  } else {
+    // weekly or biweekly — chain from reference date
+    const ref = new Date(source.referenceDate + "T12:00:00");
+    const interval = source.frequency === "weekly" ? 7 : 14;
+
+    // Find the first occurrence on or after the start of month
+    const diffDays = daysBetween(ref, firstOfMonth);
+    let stepsNeeded = Math.floor(diffDays / interval);
+    if (stepsNeeded * interval < diffDays) stepsNeeded++;
+    // Could also be negative if ref is in the future
+    let cursor = new Date(ref.getTime() + stepsNeeded * interval * 86400000);
+
+    // Step back one interval if we overshot, then scan forward
+    if (cursor > lastOfMonth) return results;
+    if (cursor < firstOfMonth) cursor = new Date(cursor.getTime() + interval * 86400000);
+
+    while (cursor <= lastOfMonth) {
+      if (cursor >= firstOfMonth) {
+        results.push(new Date(cursor));
+      }
+      cursor = new Date(cursor.getTime() + interval * 86400000);
+    }
+  }
+  return results;
+}
+
+// ─── Reusable UI Components ───────────────────────────────────────────────
+function Card({ children, className = "", darkMode = false }) {
+  return <div className={`${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-100'} rounded-2xl shadow-sm border p-5 ${className}`}>{children}</div>;
+}
+
+function StatCard({ icon: Icon, label, value, sub, color = "indigo", darkMode = false }) {
+  const bgMap = { indigo: "bg-indigo-50", green: "bg-emerald-50", amber: "bg-amber-50", rose: "bg-rose-50", cyan: "bg-cyan-50" };
+  const txtMap = { indigo: "text-indigo-600", green: "text-emerald-600", amber: "text-amber-600", rose: "text-rose-600", cyan: "text-cyan-600" };
+  return (
+    <Card darkMode={darkMode}>
+      <div className="flex items-start gap-3">
+        <div className={`p-2.5 rounded-xl ${bgMap[color]}`}>
+          <Icon size={20} className={txtMap[color]} />
+        </div>
+        <div className="min-w-0">
+          <p className={`text-xs font-medium ${darkMode ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wide`}>{label}</p>
+          <p className={`text-xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'} mt-0.5 truncate`}>{value}</p>
+          {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function ProgressBar({ value, max, color = "#6366f1", height = 8 }) {
+  const p = pct(value, max);
+  return (
+    <div className="w-full rounded-full bg-gray-100" style={{ height }}>
+      <div className="rounded-full transition-all duration-500" style={{ width: `${Math.min(p, 100)}%`, height, backgroundColor: color }} />
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, message }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+      <Icon size={40} strokeWidth={1.2} />
+      <p className="mt-3 text-sm">{message}</p>
+    </div>
+  );
+}
+
+// ─── Swipeable Row (touch + mouse drag to reveal actions) ─────────────────
+function SwipeRow({ children, actions, isOpen, onToggle }) {
+  const [dragX, setDragX] = useState(0);
+  const [startX, setStartX] = useState(null);
+  const [dragging, setDragging] = useState(false);
+  const actionsWidth = actions.length * 64; // 64px per action button
+
+  const handleStart = (x) => { setStartX(x); setDragging(true); };
+  const handleMove = (x) => {
+    if (!dragging || startX === null) return;
+    const diff = x - startX;
+    if (isOpen) {
+      // Already open — allow dragging right to close
+      const newX = Math.max(-actionsWidth, Math.min(0, -actionsWidth + diff));
+      setDragX(newX);
+    } else {
+      // Closed — only allow dragging left to open
+      const newX = Math.min(0, Math.max(-actionsWidth, diff));
+      setDragX(newX);
+    }
+  };
+  const handleEnd = () => {
+    if (!dragging) return;
+    setDragging(false);
+    setStartX(null);
+    const threshold = actionsWidth / 3;
+    if (isOpen) {
+      // If dragged right past threshold, close
+      if (dragX > -actionsWidth + threshold) { setDragX(0); onToggle(false); }
+      else { setDragX(-actionsWidth); }
+    } else {
+      // If dragged left past threshold, open
+      if (dragX < -threshold) { setDragX(-actionsWidth); onToggle(true); }
+      else { setDragX(0); }
+    }
+  };
+
+  // Sync position when isOpen changes externally
+  const targetX = isOpen ? -actionsWidth : 0;
+  const displayX = dragging ? dragX : targetX;
+
+  return (
+    <div className="relative overflow-hidden rounded-xl">
+      {/* Actions revealed behind */}
+      <div className="absolute right-0 top-0 bottom-0 flex items-stretch" style={{ width: actionsWidth }}>
+        {actions.map((action, i) => (
+          <button key={i} onClick={() => { action.onClick(); onToggle(false); }}
+            className={`flex flex-col items-center justify-center gap-1 text-white text-[10px] font-semibold ${action.className}`}
+            style={{ width: 64 }}>
+            {action.icon}
+            <span>{action.label}</span>
+          </button>
+        ))}
+      </div>
+      {/* Main content — slides left */}
+      <div
+        className="relative bg-white z-10"
+        style={{ transform: `translateX(${displayX}px)`, transition: dragging ? "none" : "transform 0.25s ease-out" }}
+        onTouchStart={(e) => handleStart(e.touches[0].clientX)}
+        onTouchMove={(e) => handleMove(e.touches[0].clientX)}
+        onTouchEnd={handleEnd}
+        onMouseDown={(e) => { e.preventDefault(); handleStart(e.clientX); }}
+        onMouseMove={(e) => { if (dragging) handleMove(e.clientX); }}
+        onMouseUp={handleEnd}
+        onMouseLeave={() => { if (dragging) handleEnd(); }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────
+
+// ─── Helper: Build planner items for a given month (avoids duplication) ────
+function buildPlannerItemsForMonth(year, month, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth) {
+  const key = monthKey(year, month);
+  const dismissed = plannerDismissedByMonth[key] || [];
+  const overrides = incomeOverrides[key] || {};
+  
+  const autoItems = [];
+  // Income from paychecks
+  incomeSources.forEach((src) => {
+    const dates = generatePayDates(src, year, month);
+    dates.forEach((d) => {
+      const checkId = `${src.id}-${d.toISOString()}`;
+      const pid = `planner-income-${checkId}`;
+      const amt = overrides[checkId] !== undefined ? overrides[checkId] : src.amount;
+      autoItems.push({ id: pid, amount: amt, type: "income", paid: false });
+    });
+  });
+  // Extra checks
+  const extras = extraChecks[key] || [];
+  extras.forEach((e) => {
+    const pid = `planner-income-${e.id}`;
+    autoItems.push({ id: pid, amount: e.amount, type: "income", paid: false });
+  });
+  // Bills
+  bills.forEach((b) => {
+    autoItems.push({ id: `planner-bill-${b.id}`, amount: b.amount, type: "expense", paid: false });
+  });
+  // Debts
+  debts.forEach((d) => {
+    autoItems.push({ id: `planner-debt-${d.id}`, amount: d.minPayment + d.extraPayment, type: "expense", paid: false });
+  });
+  // Savings
+  goals.filter((g) => g.monthlyContribution > 0).forEach((g) => {
+    autoItems.push({ id: `planner-savings-${g.id}`, amount: g.monthlyContribution, type: "expense", paid: false });
+  });
+  
+  return { autoItems, dismissed };
+}
+
+export default function PaycheckPlanner() {
+  const today = new Date();
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  
+  // ─── Feature 5: Dark mode ───
+  const [darkMode, setDarkMode] = useState(false);
+  const dm = (light, dark) => darkMode ? dark : light;
+  
+  // ─── Feature 2: Dismissed suggestions ───
+  const [dismissedSuggestions, setDismissedSuggestions] = useState({});
+  
+  // ─── Feature 3: Custom categories ───
+  const [customCategories, setCustomCategories] = useState(
+    EXPENSE_CATEGORIES.map(name => ({ name, color: COLORS[EXPENSE_CATEGORIES.indexOf(name) % COLORS.length] }))
+  );
+  const [newCatDraft, setNewCatDraft] = useState(null);
+
+  // ─── Feature 4: Import/Export ───
+  // (added implicitly via export/import functions)
+
+  // ─── Feature 6: Planner notes ───
+  const [plannerNotesByMonth, setPlannerNotesByMonth] = useState({});
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+  
+  // ─── Feature 7: Budget targets per category ───
+  const [categoryBudgets, setCategoryBudgets] = useState({
+    "Food & Groceries": 500,
+    "Entertainment": 200,
+    "Transportation": 300,
+  });
+  const [budgetDraft, setBudgetDraft] = useState(null);
+  const [tab, setTab] = useState("dashboard");
+
+  // ── Month navigation ──
+  const goMonth = (dir) => {
+    let m = viewMonth + dir;
+    let y = viewYear;
+    if (m < 0) { m = 11; y--; }
+    if (m > 11) { m = 0; y++; }
+    setViewMonth(m);
+    setViewYear(y);
+  };
+  const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
+  const vKey = monthKey(viewYear, viewMonth);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // RECURRING DATA (templates that repeat every month)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // Income sources — define frequency + a reference pay date to anchor from
+  const [incomeSources, setIncomeSources] = useState([
+    { id: uid(), name: "Primary Job", amount: 2560, frequency: "biweekly", referenceDate: "2026-03-07" },
+  ]);
+  const [incomeDraft, setIncomeDraft] = useState(null);
+
+  // Recurring bills
+  const [bills, setBills] = useState([
+    { id: uid(), name: "Rent", amount: 1200, dueDay: 1, category: "Housing", autopay: true },
+    { id: uid(), name: "Electric", amount: 120, dueDay: 15, category: "Utilities", autopay: false },
+    { id: uid(), name: "Car Payment", amount: 350, dueDay: 5, category: "Transportation", autopay: true },
+    { id: uid(), name: "Internet", amount: 65, dueDay: 20, category: "Utilities", autopay: true },
+  ]);
+  const [billDraft, setBillDraft] = useState(null);
+
+  // Savings goals (recurring monthly contribution)
+  const [goals, setGoals] = useState([
+    { id: uid(), name: "Emergency Fund", target: 10000, saved: 3500, monthlyContribution: 200, color: "#6366f1" },
+    { id: uid(), name: "Vacation", target: 3000, saved: 850, monthlyContribution: 150, color: "#22d3ee" },
+  ]);
+  const [goalDraft, setGoalDraft] = useState(null);
+  const [savingsTransactions, setSavingsTransactions] = useState({});
+  const [savingsWithdrawDraft, setSavingsWithdrawDraft] = useState(null);
+  const [expandedGoalId, setExpandedGoalId] = useState(null);
+
+  // Debts (recurring payments)
+  const [debts, setDebts] = useState([
+    { id: uid(), name: "Student Loan", balance: 18500, rate: 5.5, minPayment: 220, extraPayment: 0 },
+    { id: uid(), name: "Credit Card", balance: 3200, rate: 19.99, minPayment: 75, extraPayment: 50 },
+  ]);
+  const [debtDraft, setDebtDraft] = useState(null);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // MONTH-SPECIFIC DATA (one-off expenses stored per month key)
+  // ═══════════════════════════════════════════════════════════════════════
+  const [expensesByMonth, setExpensesByMonth] = useState({
+    "2026-03": [
+      { id: uid(), description: "Groceries", amount: 85, category: "Food & Groceries", date: "2026-03-15" },
+      { id: uid(), description: "Gas", amount: 45, category: "Transportation", date: "2026-03-14" },
+      { id: uid(), description: "Netflix", amount: 15.99, category: "Subscriptions", date: "2026-03-01" },
+      { id: uid(), description: "Haircut", amount: 30, category: "Personal Care", date: "2026-03-10" },
+    ],
+  });
+  const [expDraft, setExpDraft] = useState(null);
+
+  // Quick-add floating expense
+  const [quickAdd, setQuickAdd] = useState(null);
+
+  // Per-month overrides for generated paycheck amounts { "2026-03": { "srcId-isoDate": 2400 } }
+  const [incomeOverrides, setIncomeOverrides] = useState({});
+  const [editingCheckId, setEditingCheckId] = useState(null);
+  const [editingCheckAmount, setEditingCheckAmount] = useState("");
+
+  // One-off bonus / extra paychecks per month (on top of recurring)
+  const [extraChecks, setExtraChecks] = useState({});
+  const [extraCheckDraft, setExtraCheckDraft] = useState(null);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // PLANNER (Fudget-style) — line-item budget per month
+  // ═══════════════════════════════════════════════════════════════════════
+  // Manual items added directly in planner (user-created only)
+  const [plannerManualByMonth, setPlannerManualByMonth] = useState({});
+  // Dismissed auto-generated items per month { "2026-03": ["planner-income-srcId-iso", ...] }
+  const [plannerDismissedByMonth, setPlannerDismissedByMonth] = useState({});
+  // Paid status for auto-generated items { "2026-03": { "planner-income-srcId-iso": true } }
+  const [plannerPaidByMonth, setPlannerPaidByMonth] = useState({});
+  const [plannerDraft, setPlannerDraft] = useState(null);
+  const [swipedItemId, setSwipedItemId] = useState(null);
+
+  // State for donut chart category drill-down
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [simExtraPayment, setSimExtraPayment] = useState(0);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // NET WORTH TRACKER
+  // ═══════════════════════════════════════════════════════════════════════
+  const [assets, setAssets] = useState([
+    { id: uid(), name: "Checking Account", category: "Cash", balance: 2500 },
+    { id: uid(), name: "Savings Account", category: "Cash", balance: 8500 },
+    { id: uid(), name: "401(k)", category: "Investments", balance: 24000 },
+  ]);
+  const [assetDraft, setAssetDraft] = useState(null);
+  const [liabilities, setLiabilities] = useState([]);
+  const [liabilityDraft, setLiabilityDraft] = useState(null);
+  const [netWorthHistory, setNetWorthHistory] = useState([]);
+  const [nwMilestones, setNwMilestones] = useState([
+    { id: uid(), label: "$50K", target: 50000 },
+    { id: uid(), label: "$100K", target: 100000 },
+  ]);
+  const [milestoneDraft, setMilestoneDraft] = useState(null);
+  const [balanceHistory, setBalanceHistory] = useState({});
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // PAY CALCULATOR
+  // ═══════════════════════════════════════════════════════════════════════
+  const [payCalcEntries, setPayCalcEntries] = useState([]);
+  const [payCalcDraft, setPayCalcDraft] = useState(null);
+  const [payCalcSettings, setPayCalcSettings] = useState({
+    hourlyRate: 15, federalRate: 12, stateRate: 5, ficaRate: 7.65, otRate: 1.5,
+    preTaxDeductions: 0, name: "Partner"
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // GLOBAL SEARCH
+  // ═══════════════════════════════════════════════════════════════════════
+  const [globalSearch, setGlobalSearch] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // DERIVED DATA for the viewed month
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // Generate paychecks for viewed month from all income sources
+  const monthOverrides = incomeOverrides[vKey] || {};
+  const monthPaychecks = useMemo(() => {
+    const generated = [];
+    incomeSources.forEach((src) => {
+      const dates = generatePayDates(src, viewYear, viewMonth);
+      dates.forEach((d) => {
+        const checkId = `${src.id}-${d.toISOString()}`;
+        const overriddenAmount = monthOverrides[checkId];
+        generated.push({
+          id: checkId,
+          label: src.name,
+          amount: overriddenAmount !== undefined ? overriddenAmount : src.amount,
+          baseAmount: src.amount,
+          isOverridden: overriddenAmount !== undefined,
+          date: d,
+          frequency: src.frequency,
+          sourceId: src.id,
+          isGenerated: true,
+        });
+      });
+    });
+    // Add any extra / one-off checks for this month
+    const extras = extraChecks[vKey] || [];
+    extras.forEach((e) => {
+      generated.push({ ...e, date: new Date(e.date + "T12:00:00"), isGenerated: false, isOverridden: false });
+    });
+    return generated.sort((a, b) => a.date - b.date);
+  }, [incomeSources, extraChecks, viewYear, viewMonth, vKey, monthOverrides]);
+
+  const manualExpenses = expensesByMonth[vKey] || [];
+
+  const totalPaychecks = monthPaychecks.reduce((s, p) => s + p.amount, 0);
+  const avgPaycheck = monthPaychecks.length > 0 ? totalPaychecks / monthPaychecks.length : 0;
+  const monthlyIncome = totalPaychecks;
+  const totalDebtBalance = debts.reduce((s, d) => s + d.balance, 0);
+
+  // Build combined expenses: recurring bills + debt payments + savings + manual expenses
+  const recurringBillExpenses = useMemo(() => {
+    const mm = String(viewMonth + 1).padStart(2, "0");
+    return bills.map((b) => ({
+      id: `bill-${b.id}`,
+      description: b.name,
+      amount: b.amount,
+      category: b.category,
+      date: `${viewYear}-${mm}-${String(Math.min(b.dueDay, new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0")}`,
+      recurring: true,
+      type: "bill",
+    }));
+  }, [bills, viewYear, viewMonth]);
+
+  const recurringDebtExpenses = useMemo(() => {
+    const mm = String(viewMonth + 1).padStart(2, "0");
+    return debts.map((d) => ({
+      id: `debt-${d.id}`,
+      description: `${d.name} payment`,
+      amount: d.minPayment + d.extraPayment,
+      category: "Debt Payment",
+      date: `${viewYear}-${mm}-01`,
+      recurring: true,
+      type: "debt",
+    }));
+  }, [debts, viewYear, viewMonth]);
+
+  // Savings contributions as expenses
+  const recurringSavingsExpenses = useMemo(() => {
+    const mm = String(viewMonth + 1).padStart(2, "0");
+    return goals.filter((g) => g.monthlyContribution > 0).map((g) => ({
+      id: `savings-${g.id}`,
+      description: `${g.name} contribution`,
+      amount: g.monthlyContribution,
+      category: "Savings",
+      date: `${viewYear}-${mm}-01`,
+      recurring: true,
+      type: "savings",
+      goalId: g.id,
+    }));
+  }, [goals, viewYear, viewMonth]);
+
+  // All expenses for the month (recurring bills + debt + savings + manual)
+  const allMonthExpenses = useMemo(() => {
+    return [...recurringBillExpenses, ...recurringDebtExpenses, ...recurringSavingsExpenses, ...manualExpenses.map((e) => ({ ...e, recurring: false, type: "manual" }))];
+  }, [recurringBillExpenses, recurringDebtExpenses, recurringSavingsExpenses, manualExpenses]);
+
+  const totalBills = bills.reduce((s, b) => s + b.amount, 0);
+  const totalDebtPayments = debts.reduce((s, d) => s + d.minPayment + d.extraPayment, 0);
+  const totalSavingsContrib = goals.reduce((s, g) => s + g.monthlyContribution, 0);
+  const totalManualExpenses = manualExpenses.reduce((s, e) => s + e.amount, 0);
+  const totalAllExpenses = allMonthExpenses.reduce((s, e) => s + e.amount, 0);
+  const remainingBudget = monthlyIncome - totalAllExpenses;
+
+  const checkCount = monthPaychecks.length || 1;
+  const perPaycheckBills = totalBills / checkCount;
+  const perPaycheckSavings = totalSavingsContrib / checkCount;
+  const perPaycheckDebt = totalDebtPayments / checkCount;
+
+  // Expense by category (from ALL expenses)
+  const expByCategory = useMemo(() => {
+    const map = {};
+    allMonthExpenses.forEach((e) => { map[e.category] = (map[e.category] || 0) + e.amount; });
+    return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [allMonthExpenses]);
+
+  // Upcoming bills (days until due from today, only for current month view)
+  const upcomingBills = useMemo(() => {
+    const currentDay = isCurrentMonth ? today.getDate() : 1;
+    return bills.map((b) => {
+      let daysUntil = b.dueDay - currentDay;
+      if (daysUntil < 0) daysUntil += 30;
+      const dueDate = new Date(viewYear, viewMonth, b.dueDay);
+      const urgency = isCurrentMonth ? (daysUntil <= 3 ? "urgent" : daysUntil <= 7 ? "soon" : "upcoming") : "upcoming";
+      return { ...b, daysUntil, dueDate, urgency };
+    }).sort((a, b) => a.daysUntil - b.daysUntil);
+  }, [bills, viewYear, viewMonth, isCurrentMonth]);
+
+  // Bill assignment to paychecks
+  const billsByPaycheck = useMemo(() => {
+    const sorted = [...monthPaychecks];
+    if (sorted.length === 0) return [{ label: "No paychecks", bills: [...bills].sort((a, b) => a.dueDay - b.dueDay) }];
+    if (sorted.length === 1) return [{ label: sorted[0].label, payDate: sorted[0].date, bills: [...bills].sort((a, b) => a.dueDay - b.dueDay) }];
+    return sorted.map((check, i) => {
+      const startDay = check.date.getDate();
+      const endDay = i < sorted.length - 1 ? sorted[i + 1].date.getDate() - 1 : new Date(viewYear, viewMonth + 1, 0).getDate();
+      return {
+        label: check.label,
+        payDate: check.date,
+        bills: bills.filter((b) => b.dueDay >= startDay && b.dueDay <= endDay).sort((a, b) => a.dueDay - b.dueDay),
+      };
+    });
+  }, [bills, monthPaychecks, viewYear, viewMonth]);
+
+  // Trend data — generate for last 6 months from Planner data (ONLY PAID items)
+  const trendData = useMemo(() => {
+    const points = [];
+    for (let i = 5; i >= 0; i--) {
+      let tY = viewYear;
+      let tM = viewMonth - i;
+      while (tM < 0) { tM += 12; tY--; }
+      const key = monthKey(tY, tM);
+      const label = new Date(tY, tM, 1).toLocaleDateString("en-US", { month: "short" });
+      const paidMap = plannerPaidByMonth[key] || {};
+      
+      const { autoItems, dismissed } = buildPlannerItemsForMonth(tY, tM, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth);
+      
+      const active = autoItems.filter((item) => !dismissed.includes(item.id) && paidMap[item.id]);
+      const manual = (plannerManualByMonth[key] || []).filter((mi) => mi.paid);
+      const all = [...active, ...manual];
+
+      const income = all.filter((item) => item.type === "income").reduce((s, item) => s + item.amount, 0);
+      const spending = all.filter((item) => item.type === "expense").reduce((s, item) => s + item.amount, 0);
+      const saved = Math.max(income - spending, 0);
+
+      points.push({ month: label, income, spending, saved });
+    }
+    return points;
+  }, [incomeSources, extraChecks, bills, debts, goals, incomeOverrides, plannerDismissedByMonth, plannerManualByMonth, plannerPaidByMonth, viewYear, viewMonth]);
+
+  // Cash flow timeline — day-by-day for the viewed month
+  const cashFlowTimeline = useMemo(() => {
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const events = [];
+    // Income events
+    monthPaychecks.forEach((p) => {
+      events.push({ day: p.date.getDate(), amount: p.amount, label: p.label, type: "income" });
+    });
+    // Bill events
+    bills.forEach((b) => {
+      const day = Math.min(b.dueDay, daysInMonth);
+      events.push({ day, amount: -b.amount, label: b.name, type: "bill" });
+    });
+    // Debt payment events
+    debts.forEach((d) => {
+      events.push({ day: 1, amount: -(d.minPayment + d.extraPayment), label: `${d.name} payment`, type: "debt" });
+    });
+    // Savings events
+    goals.forEach((g) => {
+      if (g.monthlyContribution > 0) events.push({ day: 1, amount: -g.monthlyContribution, label: `${g.name} savings`, type: "savings" });
+    });
+
+    // Build running balance by day
+    const byDay = {};
+    events.forEach((e) => {
+      if (!byDay[e.day]) byDay[e.day] = [];
+      byDay[e.day].push(e);
+    });
+
+    const timeline = [];
+    let balance = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayEvents = byDay[d] || [];
+      const dayIn = dayEvents.filter((e) => e.type === "income").reduce((s, e) => s + e.amount, 0);
+      const dayOut = dayEvents.filter((e) => e.type !== "income").reduce((s, e) => s + Math.abs(e.amount), 0);
+      balance += dayIn - dayOut;
+      timeline.push({ day: d, balance, income: dayIn, expenses: dayOut, events: dayEvents });
+    }
+    return timeline;
+  }, [monthPaychecks, bills, debts, goals, viewYear, viewMonth]);
+
+  // Year-at-a-glance data — derived from Planner items per month (ONLY PAID items)
+  const yearData = useMemo(() => {
+    const months = [];
+    for (let m = 0; m < 12; m++) {
+      const key = monthKey(viewYear, m);
+      const label = new Date(viewYear, m, 1).toLocaleDateString("en-US", { month: "short" });
+      const paidMap = plannerPaidByMonth[key] || {};
+      
+      const { autoItems, dismissed } = buildPlannerItemsForMonth(viewYear, m, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth);
+
+      // Filter dismissed and ONLY PAID items (both income AND expenses must be marked paid)
+      const active = autoItems.filter((i) => !dismissed.includes(i.id) && paidMap[i.id]);
+      const manual = (plannerManualByMonth[key] || []).filter((mi) => mi.paid);
+      const all = [...active, ...manual];
+
+      const income = all.filter((i) => i.type === "income").reduce((s, i) => s + i.amount, 0);
+      const expenses = all.filter((i) => i.type === "expense").reduce((s, i) => s + i.amount, 0);
+      const savingsExp = all.filter((i) => i.id.startsWith("planner-savings-") && i.type === "expense").reduce((s, i) => s + i.amount, 0);
+      const net = income - expenses;
+
+      months.push({ month: label, monthIdx: m, income, expenses, savings: savingsExp, net });
+    }
+    return months;
+  }, [incomeSources, extraChecks, bills, debts, goals, incomeOverrides, plannerDismissedByMonth, plannerPaidByMonth, plannerManualByMonth, viewYear]);
+
+  // Debt payoff timelines
+  const debtTimelines = useMemo(() => {
+    return debts.map((d) => {
+      const monthlyRate = d.rate / 100 / 12;
+      const payment = d.minPayment + d.extraPayment;
+      if (payment <= 0) return { ...d, months: Infinity, totalInterest: Infinity };
+      let balance = d.balance;
+      let months = 0;
+      let totalInterest = 0;
+      while (balance > 0 && months < 600) {
+        const interest = balance * monthlyRate;
+        totalInterest += interest;
+        balance = balance + interest - payment;
+        months++;
+        if (balance < 0) balance = 0;
+      }
+      return { ...d, months, totalInterest };
+    });
+  }, [debts]);
+
+  // Snowball vs Avalanche comparison
+  const debtStrategies = useMemo(() => {
+    if (debts.length < 2) return null;
+    const simulate = (sortFn) => {
+      let pool = debts.map(d => ({ ...d, bal: d.balance }));
+      let months = 0, totalInterest = 0;
+      const totalMonthlyPayment = debts.reduce((s, d) => s + d.minPayment + d.extraPayment, 0);
+      while (pool.some(d => d.bal > 0) && months < 600) {
+        months++;
+        let extra = totalMonthlyPayment;
+        pool.forEach(d => {
+          const interest = d.bal * (d.rate / 100 / 12);
+          totalInterest += interest;
+          d.bal += interest;
+        });
+        pool = pool.sort(sortFn);
+        pool.forEach(d => {
+          if (d.bal <= 0) return;
+          const pay = Math.min(d.bal, extra);
+          d.bal -= pay;
+          extra -= pay;
+          if (d.bal < 0.01) d.bal = 0;
+        });
+      }
+      return { months, totalInterest, totalPaid: debts.reduce((s, d) => s + d.balance, 0) + totalInterest };
+    };
+    const avalanche = simulate((a, b) => b.rate - a.rate);
+    const snowball = simulate((a, b) => a.bal - b.bal);
+    return { avalanche, snowball };
+  }, [debts]);
+
+  // Goal timelines
+  const goalTimelines = useMemo(() => {
+    return goals.map((g) => {
+      // Adjust saved amount based on how many months from current month to viewed month
+      const monthDiff = (viewYear - today.getFullYear()) * 12 + (viewMonth - today.getMonth());
+      const projectedSaved = Math.min(g.saved + Math.max(monthDiff, 0) * g.monthlyContribution, g.target);
+      const remaining = g.target - projectedSaved;
+      const months = g.monthlyContribution > 0 ? Math.ceil(remaining / g.monthlyContribution) : Infinity;
+      return { ...g, saved: projectedSaved, months, remaining };
+    });
+  }, [goals, viewYear, viewMonth]);
+
+  // ── CRUD helpers ──
+  // Feature 4: Export/Import helpers
+  const handleExport = () => {
+    const data = {
+      incomeSources, bills, goals, debts, expensesByMonth, extraChecks, incomeOverrides,
+      plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth,
+      customCategories, categoryBudgets, darkMode,
+      assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
+      payCalcEntries, payCalcSettings, savingsTransactions
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `paycheck-planner-${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result || '{}');
+        if (data.incomeSources) setIncomeSources(data.incomeSources);
+        if (data.bills) setBills(data.bills);
+        if (data.goals) setGoals(data.goals);
+        if (data.debts) setDebts(data.debts);
+        if (data.expensesByMonth) setExpensesByMonth(data.expensesByMonth);
+        if (data.extraChecks) setExtraChecks(data.extraChecks);
+        if (data.incomeOverrides) setIncomeOverrides(data.incomeOverrides);
+        if (data.plannerManualByMonth) setPlannerManualByMonth(data.plannerManualByMonth);
+        if (data.plannerDismissedByMonth) setPlannerDismissedByMonth(data.plannerDismissedByMonth);
+        if (data.plannerPaidByMonth) setPlannerPaidByMonth(data.plannerPaidByMonth);
+        if (data.plannerNotesByMonth) setPlannerNotesByMonth(data.plannerNotesByMonth);
+        if (data.customCategories) setCustomCategories(data.customCategories);
+        if (data.categoryBudgets) setCategoryBudgets(data.categoryBudgets);
+        if (data.darkMode !== undefined) setDarkMode(data.darkMode);
+        if (data.assets) setAssets(data.assets);
+        if (data.liabilities) setLiabilities(data.liabilities);
+        if (data.netWorthHistory) setNetWorthHistory(data.netWorthHistory);
+        if (data.nwMilestones) setNwMilestones(data.nwMilestones);
+        if (data.balanceHistory) setBalanceHistory(data.balanceHistory);
+        if (data.payCalcEntries) setPayCalcEntries(data.payCalcEntries);
+        if (data.payCalcSettings) setPayCalcSettings(data.payCalcSettings);
+        if (data.savingsTransactions) setSavingsTransactions(data.savingsTransactions);
+        alert('Data imported successfully!');
+      } catch (error) {
+        alert('Error importing data: ' + error.message);
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
+  const saveCheckOverride = (checkId, amount) => {
+    const key = vKey;
+    const existing = incomeOverrides[key] || {};
+    setIncomeOverrides({ ...incomeOverrides, [key]: { ...existing, [checkId]: amount } });
+    setEditingCheckId(null);
+    setEditingCheckAmount("");
+  };
+  const clearCheckOverride = (checkId) => {
+    const key = vKey;
+    const existing = { ...(incomeOverrides[key] || {}) };
+    delete existing[checkId];
+    setIncomeOverrides({ ...incomeOverrides, [key]: existing });
+  };
+  const addIncomeSource = (s) => { setIncomeSources([...incomeSources, { ...s, id: uid() }]); setIncomeDraft(null); };
+  const removeIncomeSource = (id) => setIncomeSources(incomeSources.filter((s) => s.id !== id));
+  const addExtraCheck = (c) => {
+    const key = vKey;
+    setExtraChecks({ ...extraChecks, [key]: [...(extraChecks[key] || []), { ...c, id: uid() }] });
+    setExtraCheckDraft(null);
+  };
+  const removeExtraCheck = (id) => {
+    const key = vKey;
+    setExtraChecks({ ...extraChecks, [key]: (extraChecks[key] || []).filter((c) => c.id !== id) });
+  };
+  const addBill = (b) => { setBills([...bills, { ...b, id: uid() }]); setBillDraft(null); };
+  const removeBill = (id) => setBills(bills.filter((b) => b.id !== id));
+  const addGoal = (g) => { setGoals([...goals, { ...g, id: uid(), color: COLORS[goals.length % COLORS.length] }]); setGoalDraft(null); };
+  const removeGoal = (id) => setGoals(goals.filter((g) => g.id !== id));
+  const withdrawFromGoal = (goalId, amount, description) => {
+    setGoals(goals.map(g => g.id === goalId ? { ...g, saved: Math.max(0, g.saved - amount) } : g));
+    const txn = { id: uid(), amount, description, date: new Date().toISOString().slice(0, 10), type: "withdrawal" };
+    setSavingsTransactions(prev => ({ ...prev, [goalId]: [...(prev[goalId] || []), txn] }));
+    setSavingsWithdrawDraft(null);
+  };
+  const depositToGoal = (goalId, amount, description) => {
+    setGoals(goals.map(g => g.id === goalId ? { ...g, saved: g.saved + amount } : g));
+    const txn = { id: uid(), amount, description, date: new Date().toISOString().slice(0, 10), type: "deposit" };
+    setSavingsTransactions(prev => ({ ...prev, [goalId]: [...(prev[goalId] || []), txn] }));
+    setSavingsWithdrawDraft(null);
+  };
+  const addExpense = (e) => {
+    const key = vKey;
+    const newExp = { ...e, id: uid() };
+    setExpensesByMonth({ ...expensesByMonth, [key]: [...(expensesByMonth[key] || []), newExp] });
+    // If this is a savings contribution, credit the goal
+    if (e.category === "Savings" && e.goalId) {
+      setGoals(goals.map((g) => g.id === e.goalId ? { ...g, saved: g.saved + (+e.amount || 0) } : g));
+    }
+    setExpDraft(null);
+  };
+  const removeExpense = (id) => {
+    const key = vKey;
+    setExpensesByMonth({ ...expensesByMonth, [key]: (expensesByMonth[key] || []).filter((e) => e.id !== id) });
+  };
+  const addDebt = (d) => { setDebts([...debts, { ...d, id: uid() }]); setDebtDraft(null); };
+  const removeDebt = (id) => setDebts(debts.filter((d) => d.id !== id));
+
+  // Planner — auto-generate items from Dashboard data, merge with manual, filter dismissed
+  const plannerDismissed = plannerDismissedByMonth[vKey] || [];
+  const plannerPaidMap = plannerPaidByMonth[vKey] || {};
+  const plannerManualItems = plannerManualByMonth[vKey] || [];
+
+  const plannerItems = useMemo(() => {
+    const auto = [];
+    // Income: from monthPaychecks (generated + extras)
+    monthPaychecks.forEach((p) => {
+      const pid = `planner-income-${p.id}`;
+      auto.push({ id: pid, label: p.label, amount: p.amount, type: "income", paid: !!plannerPaidMap[pid], auto: true, source: "income",
+        dateSortKey: p.date.toISOString(), dateLabel: p.date.toLocaleDateString("en-US", { month: "short", day: "numeric" }) });
+    });
+    // Recurring bills
+    const mm = String(viewMonth + 1).padStart(2, "0");
+    bills.forEach((b) => {
+      const pid = `planner-bill-${b.id}`;
+      const dayStr = String(Math.min(b.dueDay, new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0");
+      auto.push({ id: pid, label: b.name, amount: b.amount, type: "expense", paid: !!plannerPaidMap[pid], auto: true, source: "bill",
+        dateSortKey: `${viewYear}-${mm}-${dayStr}`, dateLabel: `Due ${b.dueDay}` });
+    });
+    // Debt payments
+    debts.forEach((d) => {
+      const pid = `planner-debt-${d.id}`;
+      auto.push({ id: pid, label: `${d.name} payment`, amount: d.minPayment + d.extraPayment, type: "expense", paid: !!plannerPaidMap[pid], auto: true, source: "debt",
+        dateSortKey: `${viewYear}-${mm}-01`, dateLabel: "Monthly" });
+    });
+    // Savings contributions
+    goals.filter((g) => g.monthlyContribution > 0).forEach((g) => {
+      const pid = `planner-savings-${g.id}`;
+      auto.push({ id: pid, label: `${g.name} contribution`, amount: g.monthlyContribution, type: "expense", paid: !!plannerPaidMap[pid], auto: true, source: "savings",
+        dateSortKey: `${viewYear}-${mm}-01`, dateLabel: "Monthly" });
+    });
+    // Filter out dismissed auto items
+    const filtered = auto.filter((item) => !plannerDismissed.includes(item.id));
+    // Add manual items
+    const manual = plannerManualItems.map((m) => ({ ...m, auto: false, source: "manual" }));
+    return [...filtered, ...manual];
+  }, [monthPaychecks, bills, debts, goals, plannerDismissed, plannerPaidMap, plannerManualItems, viewYear, viewMonth]);
+
+  const addPlannerItem = (item) => {
+    const key = vKey;
+    const newItem = { ...item, id: uid() };
+    setPlannerManualByMonth({ ...plannerManualByMonth, [key]: [...(plannerManualByMonth[key] || []), newItem] });
+    setPlannerDraft(null);
+  };
+  const removePlannerItem = (id) => {
+    const key = vKey;
+    const item = plannerItems.find((i) => i.id === id);
+    if (item && item.auto) {
+      // Dismiss auto item (doesn't delete from Dashboard)
+      setPlannerDismissedByMonth({ ...plannerDismissedByMonth, [key]: [...(plannerDismissedByMonth[key] || []), id] });
+    } else {
+      // Remove manual item
+      setPlannerManualByMonth({ ...plannerManualByMonth, [key]: (plannerManualByMonth[key] || []).filter((i) => i.id !== id) });
+    }
+    setSwipedItemId(null);
+  };
+  const togglePlannerPaid = (id) => {
+    const key = vKey;
+    const item = plannerItems.find((i) => i.id === id);
+    if (item && item.auto) {
+      const existing = { ...(plannerPaidByMonth[key] || {}) };
+      existing[id] = !existing[id];
+      setPlannerPaidByMonth({ ...plannerPaidByMonth, [key]: existing });
+    } else {
+      setPlannerManualByMonth({ ...plannerManualByMonth, [key]: (plannerManualByMonth[key] || []).map((i) => i.id === id ? { ...i, paid: !i.paid } : i) });
+    }
+    setSwipedItemId(null);
+  };
+  const duplicatePlannerItem = (id) => {
+    const item = plannerItems.find((i) => i.id === id);
+    if (item) {
+      const copy = { id: uid(), label: item.label, amount: item.amount, type: item.type, paid: false };
+      const key = vKey;
+      setPlannerManualByMonth({ ...plannerManualByMonth, [key]: [...(plannerManualByMonth[key] || []), copy] });
+    }
+    setSwipedItemId(null);
+  };
+
+  // ── Net Worth CRUD ──
+  const ASSET_CATEGORIES = ["Cash", "Investments", "Retirement", "Property", "Vehicle", "Other"];
+  const addAsset = (a) => { setAssets([...assets, { ...a, id: uid() }]); setAssetDraft(null); };
+  const removeAsset = (id) => setAssets(assets.filter((a) => a.id !== id));
+  const updateAssetBalance = (id, balance) => setAssets(assets.map((a) => a.id === id ? { ...a, balance } : a));
+  const addLiability = (l) => { setLiabilities([...liabilities, { ...l, id: uid() }]); setLiabilityDraft(null); };
+  const removeLiability = (id) => setLiabilities(liabilities.filter((l) => l.id !== id));
+  const updateLiabilityBalance = (id, balance) => setLiabilities(liabilities.map((l) => l.id === id ? { ...l, balance } : l));
+  const addMilestone = (m) => { setNwMilestones([...nwMilestones, { ...m, id: uid() }]); setMilestoneDraft(null); };
+  const removeMilestone = (id) => setNwMilestones(nwMilestones.filter((m) => m.id !== id));
+
+  const totalAssets = assets.reduce((s, a) => s + a.balance, 0);
+  const debtLiabilities = debts.map((d) => ({ id: `debt-${d.id}`, name: d.name, category: "Debt", balance: d.balance, fromDebt: true }));
+  const allLiabilities = [...debtLiabilities, ...liabilities];
+  const totalLiabilities = allLiabilities.reduce((s, l) => s + l.balance, 0);
+  const netWorth = totalAssets - totalLiabilities;
+
+  const snapshotNetWorth = () => {
+    const entry = { date: new Date().toISOString().slice(0, 7), assets: totalAssets, liabilities: totalLiabilities, netWorth };
+    setNetWorthHistory((prev) => {
+      const existing = prev.findIndex((e) => e.date === entry.date);
+      if (existing >= 0) { const updated = [...prev]; updated[existing] = entry; return updated; }
+      return [...prev, entry].sort((a, b) => a.date.localeCompare(b.date));
+    });
+  };
+
+  const snapshotBalances = () => {
+    const date = new Date().toISOString().slice(0, 7);
+    const entry = {};
+    assets.forEach(a => { entry[`asset-${a.id}`] = { name: a.name, type: 'asset', balance: a.balance }; });
+    liabilities.forEach(l => { entry[`liability-${l.id}`] = { name: l.name, type: 'liability', balance: l.balance }; });
+    setBalanceHistory(prev => ({ ...prev, [date]: entry }));
+  };
+
+  const savePlannerNote = (id) => {
+    const key = vKey;
+    const notes = { ...(plannerNotesByMonth[key] || {}) };
+    if (editingNoteText.trim()) notes[id] = editingNoteText.trim();
+    else delete notes[id];
+    setPlannerNotesByMonth({ ...plannerNotesByMonth, [key]: notes });
+    setEditingNoteId(null);
+    setEditingNoteText("");
+  };
+  const cancelPlannerNote = () => {
+    setEditingNoteId(null);
+    setEditingNoteText("");
+  };
+  // Feature 2: Detect recurring manual expenses
+  const recurringExpenseSuggestion = useMemo(() => {
+    const labelCounts = {};
+    const labelMonths = {};
+    
+    // Scan all manual items across all months
+    Object.entries(plannerManualByMonth).forEach(([monthKey, items]) => {
+      items.forEach((item) => {
+        if (item.type === "expense" || !item.type) {
+          const label = item.label || "";
+          if (!labelCounts[label]) {
+            labelCounts[label] = 0;
+            labelMonths[label] = new Set();
+          }
+          labelMonths[label].add(monthKey);
+        }
+      });
+    });
+    
+    // Find labels appearing 3+ months
+    for (const label in labelMonths) {
+      if (labelMonths[label].size >= 3 && !dismissedSuggestions[label]) {
+        return { label, monthCount: labelMonths[label].size };
+      }
+    }
+    return null;
+  }, [plannerManualByMonth, dismissedSuggestions]);
+
+  // ── Global Search ──
+  const searchResults = useMemo(() => {
+    if (!globalSearch.trim()) return [];
+    const q = globalSearch.toLowerCase();
+    const results = [];
+    incomeSources.forEach(s => { if (s.name.toLowerCase().includes(q)) results.push({ tab: 'dashboard', type: 'Income', name: s.name, detail: `${fmt(s.amount)} ${s.frequency}` }); });
+    bills.forEach(b => { if (b.name.toLowerCase().includes(q)) results.push({ tab: 'bills', type: 'Bill', name: b.name, detail: `${fmt(b.amount)} due on ${b.dueDay}` }); });
+    goals.forEach(g => { if (g.name.toLowerCase().includes(q)) results.push({ tab: 'savings', type: 'Goal', name: g.name, detail: `${fmt(g.saved)} / ${fmt(g.target)}` }); });
+    debts.forEach(d => { if (d.name.toLowerCase().includes(q)) results.push({ tab: 'debt', type: 'Debt', name: d.name, detail: `${fmt(d.balance)} at ${d.rate}%` }); });
+    assets.forEach(a => { if (a.name.toLowerCase().includes(q)) results.push({ tab: 'networth', type: 'Asset', name: a.name, detail: fmt(a.balance) }); });
+    Object.entries(expensesByMonth).forEach(([key, exps]) => {
+      exps.forEach(e => { if (e.description.toLowerCase().includes(q)) results.push({ tab: 'expenses', type: 'Expense', name: e.description, detail: `${fmt(e.amount)} — ${e.category}` }); });
+    });
+    plannerItems.forEach(i => { if (i.label.toLowerCase().includes(q)) results.push({ tab: 'planner', type: 'Planner', name: i.label, detail: `${i.type} ${fmt(i.amount)}` }); });
+    return results.slice(0, 15);
+  }, [globalSearch, incomeSources, bills, goals, debts, assets, expensesByMonth, plannerItems]);
+
+  const plannerTotalIncome = plannerItems.filter((i) => i.type === "income").reduce((s, i) => s + i.amount, 0);
+  const plannerTotalExpenses = plannerItems.filter((i) => i.type === "expense").reduce((s, i) => s + i.amount, 0);
+  const plannerBalance = plannerTotalIncome - plannerTotalExpenses;
+  const plannerPaidExpenses = plannerItems.filter((i) => i.type === "expense" && i.paid).reduce((s, i) => s + i.amount, 0);
+  const plannerUnpaidExpenses = plannerTotalExpenses - plannerPaidExpenses;
+
+  // ─── RENDER ─────────────────────────────────────────────────────────────
+  return (
+    <div className={`min-h-screen ${dm('bg-gradient-to-br from-slate-50 via-gray-50 to-indigo-50', 'bg-slate-950')}`}>
+      {/* Header */}
+      <header className={`${dm('bg-white/80', 'bg-slate-900/80')} backdrop-blur-md ${dm('border-gray-200', 'border-slate-700')} border-b sticky top-0 z-30`}>
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="bg-indigo-600 text-white p-2 rounded-xl"><Wallet size={20} /></div>
+            <div>
+              <h1 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')} leading-tight`}>Paycheck Planner</h1>
+              <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Budget & bill tracker</p>
+            </div>
+          </div>
+          {/* Month Switcher */}
+          <div className="flex items-center gap-2">
+            <button onClick={() => goMonth(-1)} className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}><ChevronLeft size={18} /></button>
+            <button onClick={() => { setViewYear(today.getFullYear()); setViewMonth(today.getMonth()); }}
+              className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition ${isCurrentMonth ? "bg-indigo-100 text-indigo-700" : dm("bg-gray-100 text-gray-700 hover:bg-gray-200", "bg-slate-700 text-slate-300 hover:bg-slate-600")}`}>
+              {monthLabel(viewYear, viewMonth)}
+            </button>
+            <button onClick={() => goMonth(1)} className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}><ChevronRight size={18} /></button>
+          </div>
+          {/* Feature 5 + 4: Dark mode toggle and Settings */}
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowSearch(!showSearch)} className={`p-2 rounded-lg ${dm('hover:bg-gray-100', 'hover:bg-slate-800')} transition`}>
+              <Search size={18} className={dm('text-gray-500', 'text-gray-400')} />
+            </button>
+            <button onClick={() => setDarkMode(!darkMode)} title="Toggle dark mode" className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}>
+              {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+            <div className="relative group">
+              <button className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}>
+                <Settings size={18} />
+              </button>
+              <div className={`absolute right-0 mt-2 w-48 ${dm('bg-white border-gray-200', 'bg-slate-800 border-slate-700')} border rounded-lg shadow-lg p-2 hidden group-hover:block z-50`}>
+                <button onClick={handleExport} className={`w-full text-left px-3 py-2 rounded flex items-center gap-2 transition ${dm('hover:bg-gray-100 text-gray-700', 'hover:bg-slate-700 text-slate-100')}`}>
+                  <Download size={14} /> Export Data
+                </button>
+                <label className={`w-full text-left px-3 py-2 rounded flex items-center gap-2 cursor-pointer transition ${dm('hover:bg-gray-100 text-gray-700', 'hover:bg-slate-700 text-slate-100')}`}>
+                  <Upload size={14} /> Import Data
+                  <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Global Search Overlay */}
+      {showSearch && (
+        <div className={`sticky top-[57px] z-20 ${dm('bg-white border-gray-200', 'bg-slate-900 border-slate-700')} border-b shadow-lg`}>
+          <div className="max-w-6xl mx-auto px-4 py-3">
+            <div className="relative">
+              <Search size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${dm('text-gray-400', 'text-gray-500')}`} />
+              <input value={globalSearch} onChange={(e) => setGlobalSearch(e.target.value)} placeholder="Search everything..."
+                className={`w-full pl-10 pr-10 py-2 border rounded-xl text-sm ${dm('border-gray-200 bg-white', 'border-slate-700 bg-slate-800 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} autoFocus />
+              <button onClick={() => { setShowSearch(false); setGlobalSearch(""); }} className="absolute right-3 top-1/2 -translate-y-1/2">
+                <X size={16} className={dm('text-gray-400', 'text-gray-500')} />
+              </button>
+            </div>
+            {searchResults.length > 0 && (
+              <div className="mt-2 max-h-64 overflow-y-auto space-y-1">
+                {searchResults.map((r, i) => (
+                  <button key={i} onClick={() => { setTab(r.tab); setShowSearch(false); setGlobalSearch(""); }}
+                    className={`w-full text-left flex items-center gap-3 p-2.5 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-800')} transition`}>
+                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${dm('bg-indigo-100 text-indigo-700', 'bg-indigo-900 text-indigo-300')}`}>{r.type}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')} truncate`}>{r.name}</p>
+                      <p className="text-xs text-gray-400 truncate">{r.detail}</p>
+                    </div>
+                    <ChevronRight size={14} className="text-gray-300" />
+                  </button>
+                ))}
+              </div>
+            )}
+            {globalSearch.trim() && searchResults.length === 0 && (
+              <p className={`text-sm text-center py-4 ${dm('text-gray-400', 'text-gray-500')}`}>No results found</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tab Navigation */}
+      <nav className={`${dm('bg-white border-gray-100', 'bg-slate-900 border-slate-700')} border-b sticky top-[57px] z-20`}>
+        <div className="max-w-6xl mx-auto px-4 flex gap-1 overflow-x-auto">
+          {TABS.map((t) => {
+            const Icon = t.icon;
+            const active = tab === t.id;
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${active ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+                <Icon size={16} />{t.label}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      <main className={`max-w-6xl mx-auto px-4 py-6 space-y-6 ${dm('', 'text-white')}`}>
+
+        {/* ═══════ DASHBOARD ═══════ */}
+        {tab === "dashboard" && (
+          <>
+
+            {/* Feature 7: Budget warning if over */}
+            {(() => {
+              const overBudgetCats = Object.entries(categoryBudgets).filter(([cat, budget]) => {
+                const spent = expByCategory.find((c) => c.name === cat)?.value || 0;
+                return spent > budget;
+              });
+              return overBudgetCats.length > 0 ? (
+                <div className={`p-4 rounded-xl border-l-4 border-rose-500 ${darkMode ? 'bg-rose-950/30' : 'bg-rose-50'} mb-4`}>
+                  <p className={`text-sm font-semibold ${darkMode ? 'text-rose-200' : 'text-rose-900'}`}>⚠️ Over budget in {overBudgetCats.length} categor{overBudgetCats.length === 1 ? 'y' : 'ies'}</p>
+                  <p className={`text-xs ${darkMode ? 'text-rose-300' : 'text-rose-700'} mt-1`}>{overBudgetCats.map(([cat]) => cat).join(", ")}</p>
+                </div>
+              ) : null;
+            })()}
+                        {/* Income Sources + Paychecks for this month */}
+            <Card darkMode={darkMode}>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-700">Paychecks — {monthLabel(viewYear, viewMonth)}</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">{monthPaychecks.length} check{monthPaychecks.length !== 1 ? "s" : ""} this month</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setExtraCheckDraft({ label: "", amount: "", date: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-15` })}
+                    className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition">
+                    <Plus size={14} /> Extra Check
+                  </button>
+                  <button onClick={() => setIncomeDraft({ name: "", amount: "", frequency: "biweekly", referenceDate: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-01` })}
+                    className="flex items-center gap-1.5 bg-indigo-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition">
+                    <Plus size={14} /> Income Source
+                  </button>
+                </div>
+              </div>
+
+              {/* Add income source form */}
+              {incomeDraft && (
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100">
+                  <input placeholder="Source name" value={incomeDraft.name} onChange={(e) => setIncomeDraft({ ...incomeDraft, name: e.target.value })}
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input type="number" placeholder="Per check" value={incomeDraft.amount} onChange={(e) => setIncomeDraft({ ...incomeDraft, amount: e.target.value })}
+                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <select value={incomeDraft.frequency} onChange={(e) => setIncomeDraft({ ...incomeDraft, frequency: e.target.value })}
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    {PAY_FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+                  </select>
+                  <div>
+                    <input type="date" value={incomeDraft.referenceDate} onChange={(e) => setIncomeDraft({ ...incomeDraft, referenceDate: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    <p className="text-xs text-gray-400 mt-0.5 pl-1">First / reference pay date</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => { if (incomeDraft.name && incomeDraft.amount) addIncomeSource({ ...incomeDraft, amount: +incomeDraft.amount }); }}
+                      className="flex-1 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1"><Check size={14} /> Save</button>
+                    <button onClick={() => setIncomeDraft(null)} className="px-3 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                  </div>
+                </div>
+              )}
+
+              {/* Add extra one-off check form */}
+              {extraCheckDraft && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 p-3 bg-emerald-50/50 rounded-xl border border-emerald-100">
+                  <input placeholder="Label (e.g. Bonus)" value={extraCheckDraft.label} onChange={(e) => setExtraCheckDraft({ ...extraCheckDraft, label: e.target.value })}
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input type="number" placeholder="Amount" value={extraCheckDraft.amount} onChange={(e) => setExtraCheckDraft({ ...extraCheckDraft, amount: e.target.value })}
+                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <input type="date" value={extraCheckDraft.date} onChange={(e) => setExtraCheckDraft({ ...extraCheckDraft, date: e.target.value })}
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <div className="flex gap-2">
+                    <button onClick={() => { if (extraCheckDraft.amount) addExtraCheck({ ...extraCheckDraft, amount: +extraCheckDraft.amount, label: extraCheckDraft.label || "Bonus" }); }}
+                      className="flex-1 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition flex items-center justify-center gap-1"><Check size={14} /> Save</button>
+                    <button onClick={() => setExtraCheckDraft(null)} className="px-3 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                  </div>
+                </div>
+              )}
+
+              {/* Income sources list */}
+              {incomeSources.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Recurring Income Sources</p>
+                  <div className="space-y-1.5">
+                    {incomeSources.map((src) => {
+                      const freqLabel = PAY_FREQUENCIES.find((f) => f.value === src.frequency)?.label || src.frequency;
+                      const checksThisMonth = monthPaychecks.filter((p) => p.sourceId === src.id).length;
+                      return (
+                        <div key={src.id} className="flex items-center gap-3 py-2 px-3 rounded-xl bg-indigo-50/40 border border-indigo-100 group">
+                          <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 text-xs font-bold flex items-center justify-center">{freqLabel.charAt(0)}</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-800">{src.name}</p>
+                            <p className="text-xs text-gray-400">{freqLabel} · {fmt(src.amount)}/check · {checksThisMonth} this month</p>
+                          </div>
+                          <span className="text-sm font-bold text-indigo-600">{fmt(src.amount * checksThisMonth)}</span>
+                          <button onClick={() => removeIncomeSource(src.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Generated paycheck dates */}
+              {monthPaychecks.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Pay Dates This Month</p>
+                  <div className="space-y-1.5">
+                    {monthPaychecks.map((p) => (
+                      <div key={p.id} className="flex items-center gap-3 py-2 px-3 rounded-xl bg-emerald-50/60 border border-emerald-100 group">
+                        <div className="w-9 h-9 flex-shrink-0 rounded-lg bg-emerald-100 text-emerald-600 text-xs font-bold flex items-center justify-center">
+                          {p.date.getDate()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800">{p.label}{!p.isGenerated ? " (one-off)" : ""}</p>
+                          <p className="text-xs text-gray-400">
+                            {p.date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                            {p.frequency ? ` · ${PAY_FREQUENCIES.find((f) => f.value === p.frequency)?.label || p.frequency}` : ""}
+                            {p.isOverridden && " · edited"}
+                          </p>
+                        </div>
+                        {editingCheckId === p.id ? (
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <div className="relative">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                              <input type="number" value={editingCheckAmount} onChange={(e) => setEditingCheckAmount(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter" && editingCheckAmount) saveCheckOverride(p.id, +editingCheckAmount); if (e.key === "Escape") setEditingCheckId(null); }}
+                                className="w-24 pl-5 pr-2 py-1 border border-emerald-300 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500" autoFocus />
+                            </div>
+                            <button onClick={() => { if (editingCheckAmount) saveCheckOverride(p.id, +editingCheckAmount); }}
+                              className="p-1 text-emerald-600 hover:text-emerald-700"><Check size={14} /></button>
+                            <button onClick={() => setEditingCheckId(null)}
+                              className="p-1 text-gray-400 hover:text-gray-600"><X size={14} /></button>
+                          </div>
+                        ) : (
+                          <button onClick={() => { setEditingCheckId(p.id); setEditingCheckAmount(String(p.amount)); }}
+                            className="text-base font-bold text-emerald-700 hover:text-emerald-900 hover:underline decoration-dashed underline-offset-2 transition flex-shrink-0 cursor-pointer"
+                            title="Click to edit amount for this month">
+                            {fmt(p.amount)}
+                          </button>
+                        )}
+                        {p.isOverridden && editingCheckId !== p.id && (
+                          <button onClick={() => clearCheckOverride(p.id)} title="Reset to default"
+                            className="text-gray-300 hover:text-amber-500 transition flex-shrink-0 text-xs">↺</button>
+                        )}
+                        {!p.isGenerated && (
+                          <button onClick={() => removeExtraCheck(p.id)} className="text-gray-300 hover:text-rose-500 transition flex-shrink-0"><Trash2 size={14} /></button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Monthly total */}
+              <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between items-center">
+                <span className="text-sm text-gray-500">Total income — {monthLabel(viewYear, viewMonth)}</span>
+                <span className="text-lg font-bold text-emerald-600">{fmt(totalPaychecks)}</span>
+              </div>
+            </Card>
+
+            {/* Stat Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard darkMode={darkMode} icon={DollarSign} label="Monthly Income" value={fmt(monthlyIncome)} sub={`${monthPaychecks.length} check${monthPaychecks.length !== 1 ? "s" : ""} · avg ${fmt(avgPaycheck)}`} color="green" />
+              <StatCard darkMode={darkMode} icon={Calendar} label="Total Outgoing" value={fmt(totalAllExpenses)} sub={`Bills · Debt · Savings · Spending`} color="amber" />
+              <StatCard darkMode={darkMode} icon={PiggyBank} label="Savings" value={fmt(totalSavingsContrib)} sub={`${goals.length} goals (incl. in total)`} color="cyan" />
+              <StatCard darkMode={darkMode} icon={Wallet} label="Remaining" value={fmt(remainingBudget)} sub={remainingBudget < 0 ? "Over budget!" : "After all obligations"} color={remainingBudget < 0 ? "rose" : "indigo"} />
+            </div>
+
+            {/* Per-Paycheck Allocation Bar */}
+            <Card darkMode={darkMode}>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Avg Per-Paycheck Allocation</h2>
+              <div className="space-y-2.5">
+                {[
+                  { label: "Bills", value: perPaycheckBills, color: "#f59e0b" },
+                  { label: "Savings", value: perPaycheckSavings, color: "#22d3ee" },
+                  { label: "Debt Payments", value: perPaycheckDebt, color: "#f43f5e" },
+                  { label: "Remaining", value: avgPaycheck - perPaycheckBills - perPaycheckSavings - perPaycheckDebt, color: "#6366f1" },
+                ].map((r) => (
+                  <div key={r.label} className="flex items-center gap-3">
+                    <span className="w-28 text-xs text-gray-500 text-right">{r.label}</span>
+                    <div className="flex-1"><ProgressBar value={Math.max(r.value, 0)} max={avgPaycheck} color={r.color} /></div>
+                    <span className="w-24 text-xs font-medium text-gray-700 text-right">{fmt(r.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            {/* Budget Pie (clickable) + Expense Bar */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Card darkMode={darkMode}>
+                <h2 className="text-sm font-semibold text-gray-700 mb-1">Monthly Budget Breakdown</h2>
+                <p className="text-xs text-gray-400 mb-3">Click a slice to see expenses</p>
+                {(() => {
+                  const donutSlices = [
+                    { name: "Bills", value: totalBills, color: "#f59e0b", filterType: "bill" },
+                    { name: "Debt", value: totalDebtPayments, color: "#f43f5e", filterType: "debt" },
+                    { name: "Savings", value: totalSavingsContrib, color: "#22d3ee", filterType: "savings" },
+                    { name: "Other Spending", value: totalManualExpenses, color: "#8b5cf6", filterType: "manual" },
+                    { name: "Remaining", value: Math.max(remainingBudget, 0), color: "#6366f1", filterType: null },
+                  ].filter(d => d.value > 0);
+                  return (
+                    <>
+                      <ResponsiveContainer width="100%" height={240}>
+                        <PieChart>
+                          <Pie data={donutSlices} cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={2} dataKey="value"
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            onClick={(_, index) => {
+                              const slice = donutSlices[index];
+                              if (slice && slice.filterType) {
+                                setSelectedCategory(selectedCategory === slice.name ? null : slice.name);
+                              }
+                            }}
+                            className="cursor-pointer"
+                          >
+                            {donutSlices.map((d, i) => (
+                              <Cell key={i} fill={d.color} stroke={selectedCategory === d.name ? "#1e1b4b" : "transparent"} strokeWidth={selectedCategory === d.name ? 3 : 0}
+                                opacity={selectedCategory && selectedCategory !== d.name ? 0.4 : 1} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(v) => fmt(v)} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      {/* Drill-down panel */}
+                      {selectedCategory && (() => {
+                        const typeMap = { "Bills": "bill", "Debt": "debt", "Savings": "savings", "Other Spending": "manual" };
+                        const filterType = typeMap[selectedCategory];
+                        const filtered = allMonthExpenses.filter((e) => e.type === filterType);
+                        const sliceColor = donutSlices.find((s) => s.name === selectedCategory)?.color || "#6366f1";
+                        return (
+                          <div className="mt-3 pt-3 border-t border-gray-100">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="w-3 h-3 rounded-full" style={{ backgroundColor: sliceColor }} />
+                                <span className="text-sm font-semibold text-gray-700">{selectedCategory}</span>
+                                <span className="text-xs text-gray-400">{filtered.length} item{filtered.length !== 1 ? "s" : ""}</span>
+                              </div>
+                              <button onClick={() => setSelectedCategory(null)} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>
+                            </div>
+                            {filtered.length === 0 ? (
+                              <p className="text-xs text-gray-400 italic py-2">No items in this category</p>
+                            ) : (
+                              <div className="space-y-1 max-h-48 overflow-y-auto">
+                                {filtered.sort((a, b) => a.date.localeCompare(b.date)).map((e) => (
+                                  <div key={e.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-gray-50 text-sm">
+                                    <span className="text-xs text-gray-400 w-12 flex-shrink-0">{new Date(e.date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                                    <span className="flex-1 text-gray-700 truncate">{e.description}</span>
+                                    <span className="font-semibold text-gray-800 flex-shrink-0">{fmt(e.amount)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <div className="mt-2 pt-2 border-t border-gray-50 flex justify-between text-xs">
+                              <span className="text-gray-400">Total</span>
+                              <span className="font-bold" style={{ color: sliceColor }}>{fmt(filtered.reduce((s, e) => s + e.amount, 0))}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  );
+                })()}
+              </Card>
+              <Card darkMode={darkMode}>
+                <h2 className="text-sm font-semibold text-gray-700 mb-3">Spending by Category</h2>
+                {expByCategory.length === 0 ? <EmptyState icon={DollarSign} message="No expenses logged this month" /> : (
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={expByCategory} layout="vertical" margin={{ left: 80, right: 20 }}>
+                      <XAxis type="number" tickFormatter={(v) => `$${v}`} fontSize={11} />
+                      <YAxis type="category" dataKey="name" fontSize={11} width={75} />
+                      <Tooltip formatter={(v) => fmt(v)} />
+                      <Bar dataKey="value" radius={[0, 6, 6, 0]}>
+                        {expByCategory.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </Card>
+            </div>
+
+            {/* Upcoming Bills Calendar */}
+            <Card darkMode={darkMode}>
+              <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                <Bell size={15} className="text-amber-500" /> Upcoming Bills — {monthLabel(viewYear, viewMonth)}
+              </h2>
+              {upcomingBills.length === 0 ? <EmptyState icon={Calendar} message="No bills to show" /> : (
+                <div className="space-y-2">
+                  {upcomingBills.map((b) => {
+                    const urgencyStyles = {
+                      urgent: { bg: "bg-rose-50", border: "border-rose-200", badge: "bg-rose-500 text-white", text: "text-rose-700" },
+                      soon: { bg: "bg-amber-50", border: "border-amber-200", badge: "bg-amber-400 text-white", text: "text-amber-700" },
+                      upcoming: { bg: "bg-gray-50", border: "border-gray-200", badge: "bg-gray-200 text-gray-600", text: "text-gray-600" },
+                    };
+                    const s = urgencyStyles[b.urgency];
+                    return (
+                      <div key={b.id} className={`flex items-center gap-3 py-2.5 px-3 rounded-xl ${s.bg} border ${s.border}`}>
+                        <div className="flex flex-col items-center w-14 flex-shrink-0">
+                          <span className="text-xs text-gray-400 uppercase">{b.dueDate.toLocaleDateString("en-US", { month: "short" })}</span>
+                          <span className="text-lg font-bold text-gray-800">{b.dueDay}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800">{b.name}</p>
+                          <p className="text-xs text-gray-400">{b.category}{b.autopay ? " · Autopay" : ""}</p>
+                        </div>
+                        {isCurrentMonth && (
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${s.badge}`}>
+                            {b.daysUntil === 0 ? "Due today" : b.daysUntil === 1 ? "Tomorrow" : `${b.daysUntil} days`}
+                          </span>
+                        )}
+                        <span className={`text-sm font-bold ${s.text}`}>{fmt(b.amount)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {isCurrentMonth && upcomingBills.filter((b) => b.urgency === "urgent").length > 0 && (
+                <div className="mt-3 pt-3 border-t border-rose-100 flex items-center gap-2">
+                  <AlertCircle size={14} className="text-rose-500" />
+                  <span className="text-xs text-rose-600 font-medium">
+                    {upcomingBills.filter((b) => b.urgency === "urgent").length} bill{upcomingBills.filter((b) => b.urgency === "urgent").length !== 1 ? "s" : ""} due within 3 days totaling {fmt(upcomingBills.filter((b) => b.urgency === "urgent").reduce((s, b) => s + b.amount, 0))}
+                  </span>
+                </div>
+              )}
+            </Card>
+
+            {/* Cash Flow Timeline */}
+            <Card darkMode={darkMode}>
+              <h2 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-2">
+                <TrendingUp size={15} className="text-emerald-500" /> Cash Flow Timeline
+              </h2>
+              <p className="text-xs text-gray-400 mb-4">Running balance through {monthLabel(viewYear, viewMonth)}</p>
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={cashFlowTimeline} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="balanceGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="day" fontSize={11} tickLine={false} axisLine={false} interval={4} />
+                  <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`} fontSize={11} tickLine={false} axisLine={false} />
+                  <Tooltip content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0].payload;
+                    return (
+                      <div className="bg-white shadow-lg border border-gray-200 rounded-lg p-2.5 text-xs">
+                        <p className="font-semibold text-gray-700">Day {d.day}</p>
+                        {d.income > 0 && <p className="text-emerald-600">+ {fmt(d.income)} income</p>}
+                        {d.expenses > 0 && <p className="text-rose-500">- {fmt(d.expenses)} out</p>}
+                        <p className={`font-bold mt-1 ${d.balance >= 0 ? "text-indigo-600" : "text-rose-600"}`}>Balance: {fmt(d.balance)}</p>
+                        {d.events.length > 0 && (
+                          <div className="mt-1 pt-1 border-t border-gray-100">
+                            {d.events.map((e, i) => <p key={i} className="text-gray-500">{e.label}</p>)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }} />
+                  <Area type="monotone" dataKey="balance" stroke="#6366f1" strokeWidth={2.5} fill="url(#balanceGrad)" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+              {/* Low balance warning */}
+              {cashFlowTimeline.some((d) => d.balance < 0) && (
+                <div className="mt-3 pt-3 border-t border-rose-100 flex items-center gap-2">
+                  <AlertCircle size={14} className="text-rose-500" />
+                  <span className="text-xs text-rose-600 font-medium">
+                    Your balance goes negative around day {cashFlowTimeline.find((d) => d.balance < 0)?.day} — consider shifting bill due dates or timing an extra check.
+                  </span>
+                </div>
+              )}
+            </Card>
+
+            {/* Income vs Spending Trends */}
+            <Card darkMode={darkMode}>
+              <h2 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-2">
+                <TrendingUp size={15} className="text-indigo-500" /> Income vs. Spending Trends
+              </h2>
+              <p className="text-xs text-gray-400 mb-4">Last 6 months ending {monthLabel(viewYear, viewMonth)}</p>
+              <ResponsiveContainer width="100%" height={260}>
+                <AreaChart data={trendData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="spendingGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.15} />
+                      <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="month" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`} fontSize={11} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(v) => fmt(v)} />
+                  <Legend />
+                  <Area type="monotone" dataKey="income" name="Income" stroke="#10b981" strokeWidth={2.5} fill="url(#incomeGrad)" dot={{ r: 4, fill: "#10b981" }} />
+                  <Area type="monotone" dataKey="spending" name="Spending" stroke="#f43f5e" strokeWidth={2.5} fill="url(#spendingGrad)" dot={{ r: 4, fill: "#f43f5e" }} />
+                  <Line type="monotone" dataKey="saved" name="Saved" stroke="#6366f1" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3, fill: "#6366f1" }} />
+                </AreaChart>
+              </ResponsiveContainer>
+              <div className="mt-4 pt-3 border-t border-gray-100 grid grid-cols-3 gap-3 text-center">
+                <div>
+                  <p className="text-xs text-gray-400">Avg Income</p>
+                  <p className="text-sm font-bold text-emerald-600">{fmt(trendData.reduce((s, d) => s + d.income, 0) / trendData.length)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Avg Spending</p>
+                  <p className="text-sm font-bold text-rose-500">{fmt(trendData.reduce((s, d) => s + d.spending, 0) / trendData.length)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Avg Savings Rate</p>
+                  <p className="text-sm font-bold text-indigo-600">
+                    {(() => {
+                      const avgInc = trendData.reduce((s, d) => s + d.income, 0) / trendData.length;
+                      const avgSave = trendData.reduce((s, d) => s + d.saved, 0) / trendData.length;
+                      return `${pct(avgSave, avgInc)}%`;
+                    })()}
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </>
+        )}
+
+        {/* ═══════ PLANNER TAB (Fudget-style) ═══════ */}
+        {tab === "planner" && (
+          <>
+            {/* Feature 2: Recurring expense suggestion banner */}
+            {recurringExpenseSuggestion && (
+              <div className={`p-4 rounded-xl border-l-4 border-amber-500 ${dm('bg-amber-50', 'bg-amber-950/30')} mb-4`}>
+                <div className="flex items-center justify-between">
+                  <div className={`text-sm ${dm('text-amber-900', 'text-amber-200')}`}>
+                    <p className="font-semibold">Make "{recurringExpenseSuggestion.label}" recurring?</p>
+                    <p className="text-xs mt-0.5 opacity-75">Appears {recurringExpenseSuggestion.monthCount} months in a row</p>
+                  </div>
+                  <button onClick={() => setDismissedSuggestions({ ...dismissedSuggestions, [recurringExpenseSuggestion.label]: true })}
+                    className={`text-xs px-3 py-1 rounded ${dm('bg-amber-100 text-amber-700 hover:bg-amber-200', 'bg-amber-900 text-amber-100 hover:bg-amber-800')} transition`}>
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Header balance card */}
+            <Card darkMode={darkMode} className="bg-gradient-to-br from-indigo-600 to-indigo-700 border-0 text-white">
+              <div className="text-center">
+                <p className="text-indigo-200 text-xs font-medium uppercase tracking-wider mb-1">
+                  {monthLabel(viewYear, viewMonth)} Balance
+                </p>
+                <p className={`text-3xl font-bold ${plannerBalance < 0 ? "text-rose-300" : "text-white"}`}>
+                  {fmt(plannerBalance)}
+                </p>
+                <div className="flex justify-center gap-6 mt-3 text-sm">
+                  <div>
+                    <span className="text-indigo-200 text-xs">Income</span>
+                    <p className="font-semibold text-emerald-300">{fmt(plannerTotalIncome)}</p>
+                  </div>
+                  <div className="w-px bg-indigo-400" />
+                  <div>
+                    <span className="text-indigo-200 text-xs">Expenses</span>
+                    <p className="font-semibold text-rose-300">{fmt(plannerTotalExpenses)}</p>
+                  </div>
+                  <div className="w-px bg-indigo-400" />
+                  <div>
+                    <span className="text-indigo-200 text-xs">Unpaid</span>
+                    <p className="font-semibold text-amber-300">{fmt(plannerUnpaidExpenses)}</p>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            {/* Add item buttons */}
+            <div className="flex gap-2">
+              <button onClick={() => setPlannerDraft({ label: "", amount: "", type: "income" })}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-600 text-white text-sm font-medium py-2.5 rounded-xl hover:bg-emerald-700 transition">
+                <Plus size={16} /> Add Income
+              </button>
+              <button onClick={() => setPlannerDraft({ label: "", amount: "", type: "expense" })}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-rose-500 text-white text-sm font-medium py-2.5 rounded-xl hover:bg-rose-600 transition">
+                <Plus size={16} /> Add Expense
+              </button>
+            </div>
+
+            {/* Add item form */}
+            {plannerDraft && (
+              <Card darkMode={darkMode} className={`${plannerDraft.type === "income" ? "border-emerald-200 bg-emerald-50/30" : "border-rose-200 bg-rose-50/30"}`}>
+                <div className="flex gap-3">
+                  <input placeholder={plannerDraft.type === "income" ? "Income label" : "Expense label"}
+                    value={plannerDraft.label} onChange={(e) => setPlannerDraft({ ...plannerDraft, label: e.target.value })}
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" autoFocus />
+                  <div className="relative w-32">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input type="number" placeholder="Amount" value={plannerDraft.amount}
+                      onChange={(e) => setPlannerDraft({ ...plannerDraft, amount: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && plannerDraft.label && plannerDraft.amount) addPlannerItem({ ...plannerDraft, amount: +plannerDraft.amount, paid: false });
+                        if (e.key === "Escape") setPlannerDraft(null);
+                      }}
+                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <button onClick={() => { if (plannerDraft.label && plannerDraft.amount) addPlannerItem({ ...plannerDraft, amount: +plannerDraft.amount, paid: false }); }}
+                    className={`px-4 text-white rounded-lg text-sm font-medium transition flex items-center gap-1 ${plannerDraft.type === "income" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-rose-500 hover:bg-rose-600"}`}>
+                    <Check size={14} />
+                  </button>
+                  <button onClick={() => setPlannerDraft(null)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                </div>
+              </Card>
+            )}
+
+            {/* Swipe hint */}
+            <p className="text-xs text-gray-400 text-center flex items-center justify-center gap-1.5">
+              <ChevronLeft size={12} /> Swipe left on items for actions
+            </p>
+
+            {/* Line items with running balance */}
+            {plannerItems.length === 0 ? (
+              <EmptyState icon={ClipboardList} message="No items yet — add income and expenses!" />
+            ) : (
+              <div className="space-y-1.5">
+                {(() => {
+                  let runningBalance = 0;
+                  return plannerItems.map((item) => {
+                    if (item.type === "income") runningBalance += item.amount;
+                    else runningBalance -= item.amount;
+                    const isIncome = item.type === "income";
+
+                    return (
+                      <SwipeRow
+                        key={item.id}
+                        isOpen={swipedItemId === item.id}
+                        onToggle={(open) => setSwipedItemId(open ? item.id : null)}
+                        actions={[
+                          {
+                            label: item.paid ? "Unpaid" : "Paid",
+                            icon: item.paid ? <Circle size={16} /> : <CheckCircle size={16} />,
+                            onClick: () => togglePlannerPaid(item.id),
+                            className: item.paid ? "bg-gray-500" : "bg-emerald-500",
+                          },
+                          {
+                            label: "Copy",
+                            icon: <Copy size={16} />,
+                            onClick: () => duplicatePlannerItem(item.id),
+                            className: "bg-indigo-500",
+                          },
+                          {
+                            label: "Note",
+                            icon: <StickyNote size={16} />,
+                            onClick: () => {
+                              setEditingNoteId(item.id);
+                              setEditingNoteText((plannerNotesByMonth[vKey] || {})[item.id] || "");
+                            },
+                            className: "bg-amber-500",
+                          },
+                          {
+                            label: "Delete",
+                            icon: <Trash2 size={16} />,
+                            onClick: () => removePlannerItem(item.id),
+                            className: "bg-rose-500",
+                          },
+                        ]}
+                      >
+                        <div className={`flex items-center gap-3 py-3 px-4 border rounded-xl transition ${
+                          item.paid
+                            ? "bg-gray-50 border-gray-200"
+                            : isIncome
+                              ? "bg-emerald-50/40 border-emerald-100"
+                              : "bg-white border-gray-100"
+                        }`}>
+                          {/* Drag hint + paid indicator */}
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <GripVertical size={14} className="text-gray-300" />
+                            {item.paid ? (
+                              <CheckCircle size={18} className="text-emerald-500" />
+                            ) : (
+                              <Circle size={18} className={isIncome ? "text-emerald-300" : "text-gray-300"} />
+                            )}
+                          </div>
+
+                          {/* Label */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className={`text-sm font-medium truncate ${item.paid ? "line-through text-gray-400" : "text-gray-800"}`}>
+                                {item.label}
+                              </p>
+                              {item.auto && (() => {
+                                const badge = { income: { bg: "bg-emerald-100", text: "text-emerald-700", label: "Income" },
+                                  bill: { bg: "bg-amber-100", text: "text-amber-700", label: "Bill" },
+                                  debt: { bg: "bg-rose-100", text: "text-rose-700", label: "Debt" },
+                                  savings: { bg: "bg-cyan-100", text: "text-cyan-700", label: "Savings" },
+                                }[item.source];
+                                return badge ? <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 ${badge.bg} ${badge.text}`}>{badge.label}</span> : null;
+                              })()}
+                            </div>
+                            <p className="text-[10px] text-gray-400 uppercase tracking-wide">
+                              {item.type}{item.paid ? " · paid" : ""}{item.auto ? " · synced" : ""}{item.dateLabel ? ` · ${item.dateLabel}` : ""}
+                            </p>
+                            {editingNoteId === item.id ? (
+                              <div className="mt-2 flex gap-2">
+                                <input
+                                  autoFocus
+                                  type="text"
+                                  value={editingNoteText}
+                                  onChange={(e) => setEditingNoteText(e.target.value)}
+                                  placeholder="Add a note..."
+                                  className="flex-1 px-2 py-1 border border-gray-200 rounded text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                />
+                                <button onClick={() => savePlannerNote(item.id)} className="px-2 py-1 bg-amber-500 text-white rounded text-xs font-medium hover:bg-amber-600"><Check size={12} /></button>
+                                <button onClick={cancelPlannerNote} className="px-2 py-1 bg-gray-300 text-gray-700 rounded text-xs font-medium hover:bg-gray-400"><X size={12} /></button>
+                              </div>
+                            ) : (
+                              (plannerNotesByMonth[vKey] || {})[item.id] && (
+                                <p className="mt-1 text-xs italic text-gray-400">{(plannerNotesByMonth[vKey] || {})[item.id]}</p>
+                              )
+                            )}
+                          </div>
+
+                          {/* Amount */}
+                          <span className={`text-sm font-bold flex-shrink-0 ${
+                            item.paid
+                              ? "text-gray-400"
+                              : isIncome
+                                ? "text-emerald-600"
+                                : "text-rose-500"
+                          }`}>
+                            {isIncome ? "+" : "−"}{fmt(item.amount)}
+                          </span>
+
+                          {/* Running balance */}
+                          <span className={`text-xs font-semibold w-20 text-right flex-shrink-0 ${
+                            runningBalance >= 0 ? "text-indigo-600" : "text-rose-600"
+                          }`}>
+                            {fmt(runningBalance)}
+                          </span>
+                        </div>
+                      </SwipeRow>
+                    );
+                  });
+                })()}
+              </div>
+            )}
+
+            {/* Bottom summary */}
+            {plannerItems.length > 0 && (
+              <Card darkMode={darkMode}>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-500">Total Income</span>
+                    <span className="text-sm font-bold text-emerald-600">{fmt(plannerTotalIncome)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-500">Total Expenses</span>
+                    <span className="text-sm font-bold text-rose-500">{fmt(plannerTotalExpenses)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-500">Paid Expenses</span>
+                    <span className="text-sm font-semibold text-gray-400 line-through">{fmt(plannerPaidExpenses)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-500">Still Owed</span>
+                    <span className="text-sm font-bold text-amber-600">{fmt(plannerUnpaidExpenses)}</span>
+                  </div>
+                  <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
+                    <span className="text-sm font-semibold text-gray-700">Remaining After All</span>
+                    <span className={`text-lg font-bold ${plannerBalance >= 0 ? "text-indigo-600" : "text-rose-600"}`}>{fmt(plannerBalance)}</span>
+                  </div>
+                  {plannerBalance < 0 && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <AlertCircle size={14} className="text-rose-500 flex-shrink-0" />
+                      <span className="text-xs text-rose-600 font-medium">You're over budget by {fmt(Math.abs(plannerBalance))} — remove expenses or add income.</span>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )}
+
+            {/* Progress bar: paid vs unpaid */}
+            {plannerTotalExpenses > 0 && (
+              <Card darkMode={darkMode}>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Payment Progress</h3>
+                <div className="w-full h-4 rounded-full bg-gray-100 overflow-hidden flex">
+                  <div className="h-full bg-emerald-500 transition-all duration-500 rounded-l-full"
+                    style={{ width: `${pct(plannerPaidExpenses, plannerTotalExpenses)}%` }} />
+                  <div className="h-full bg-amber-400 transition-all duration-500"
+                    style={{ width: `${pct(plannerUnpaidExpenses, plannerTotalExpenses)}%` }} />
+                </div>
+                <div className="flex justify-between mt-2 text-xs">
+                  <span className="text-emerald-600 font-medium">{pct(plannerPaidExpenses, plannerTotalExpenses)}% paid</span>
+                  <span className="text-amber-600 font-medium">{pct(plannerUnpaidExpenses, plannerTotalExpenses)}% remaining</span>
+                </div>
+              </Card>
+            )}
+          </>
+        )}
+
+        {/* ═══════ BILLS TAB ═══════ */}
+        {tab === "bills" && (
+          <>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900">Recurring Bills</h2>
+              <button onClick={() => setBillDraft({ name: "", amount: "", dueDay: 1, category: "Other", autopay: false })}
+                className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-indigo-700 transition">
+                <Plus size={16} /> Add Bill
+              </button>
+            </div>
+
+            {billDraft && (
+              <Card darkMode={darkMode} className="border-indigo-200 bg-indigo-50/30">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <input placeholder="Bill name" value={billDraft.name} onChange={(e) => setBillDraft({ ...billDraft, name: e.target.value })}
+                    className="col-span-2 sm:col-span-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input type="number" placeholder="Amount" value={billDraft.amount} onChange={(e) => setBillDraft({ ...billDraft, amount: e.target.value })}
+                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <input type="number" min="1" max="31" placeholder="Due day" value={billDraft.dueDay} onChange={(e) => setBillDraft({ ...billDraft, dueDay: +e.target.value })}
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <select value={billDraft.category} onChange={(e) => setBillDraft({ ...billDraft, category: e.target.value })}
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    {EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                  <div className="flex gap-2">
+                    <button onClick={() => { if (billDraft.name && billDraft.amount) addBill({ ...billDraft, amount: +billDraft.amount }); }}
+                      className="flex-1 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1"><Check size={14} /> Save</button>
+                    <button onClick={() => setBillDraft(null)} className="px-3 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* Bills assigned to paychecks for this month */}
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Bills by Paycheck — {monthLabel(viewYear, viewMonth)}</p>
+            {billsByPaycheck.map((group, gi) => (
+              <Card key={gi}>
+                <h3 className="text-sm font-semibold text-gray-600 mb-3 flex items-center gap-2">
+                  <Calendar size={15} className="text-amber-500" /> {group.label}
+                  {group.payDate && <span className="text-xs font-normal text-gray-400">({group.payDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })})</span>}
+                  <span className="ml-auto text-xs font-normal text-gray-400">{fmt(group.bills.reduce((s, b) => s + b.amount, 0))} total</span>
+                </h3>
+                {group.bills.length === 0 ? <p className="text-sm text-gray-400 italic">No bills in this window</p> : (
+                  <div className="space-y-2">
+                    {group.bills.map((b) => (
+                      <div key={b.id} className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-gray-50 transition group">
+                        <span className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 text-xs font-bold flex items-center justify-center">{b.dueDay}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800">{b.name}</p>
+                          <p className="text-xs text-gray-400">{b.category}{b.autopay ? " · Autopay" : ""}</p>
+                        </div>
+                        <span className="text-sm font-semibold text-gray-700">{fmt(b.amount)}</span>
+                        <button onClick={() => removeBill(b.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            ))}
+
+            <Card darkMode={darkMode} className="bg-amber-50/50 border-amber-200">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle size={18} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-amber-800">Budget Check</p>
+                  <p className="text-xs text-amber-600 mt-0.5">
+                    Your recurring bills ({fmt(totalBills)}) use {pct(totalBills, monthlyIncome)}% of this month's income ({fmt(monthlyIncome)}).
+                    {monthlyIncome > 0 && totalBills > monthlyIncome * 0.5 ? " Consider reducing fixed costs — the 50/30/20 rule suggests bills should be under 50%." : monthlyIncome > 0 ? " Within a healthy range." : ""}
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </>
+        )}
+
+        {/* ═══════ SAVINGS TAB ═══════ */}
+        {tab === "savings" && (
+          <>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900">Savings Goals</h2>
+              <button onClick={() => setGoalDraft({ name: "", target: "", saved: "", monthlyContribution: "" })}
+                className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-indigo-700 transition">
+                <Plus size={16} /> Add Goal
+              </button>
+            </div>
+
+            {goalDraft && (
+              <Card darkMode={darkMode} className="border-indigo-200 bg-indigo-50/30">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <input placeholder="Goal name" value={goalDraft.name} onChange={(e) => setGoalDraft({ ...goalDraft, name: e.target.value })}
+                    className="col-span-2 sm:col-span-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input type="number" placeholder="Target" value={goalDraft.target} onChange={(e) => setGoalDraft({ ...goalDraft, target: e.target.value })}
+                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input type="number" placeholder="Saved so far" value={goalDraft.saved} onChange={(e) => setGoalDraft({ ...goalDraft, saved: e.target.value })}
+                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input type="number" placeholder="Monthly" value={goalDraft.monthlyContribution} onChange={(e) => setGoalDraft({ ...goalDraft, monthlyContribution: e.target.value })}
+                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => { if (goalDraft.name && goalDraft.target) addGoal({ ...goalDraft, target: +goalDraft.target, saved: +goalDraft.saved || 0, monthlyContribution: +goalDraft.monthlyContribution || 0 }); }}
+                      className="flex-1 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1"><Check size={14} /> Save</button>
+                    <button onClick={() => setGoalDraft(null)} className="px-3 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            <p className="text-xs text-gray-400">Projected as of {monthLabel(viewYear, viewMonth)}</p>
+
+            {goalTimelines.length === 0 ? <EmptyState icon={PiggyBank} message="No savings goals yet — add one!" /> : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {goalTimelines.map((g) => {
+                  const txns = savingsTransactions[g.id] || [];
+                  const isExpanded = expandedGoalId === g.id;
+                  return (
+                    <Card key={g.id} darkMode={darkMode}>
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <h3 className={`font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{g.name}</h3>
+                          <p className="text-xs text-gray-400">{fmt(g.monthlyContribution)}/mo · {g.months === Infinity ? "No contributions" : g.months <= 0 ? "Goal reached!" : `${g.months} months to go`}</p>
+                        </div>
+                        <button onClick={() => removeGoal(g.id)} className="text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
+                      </div>
+                      <ProgressBar value={g.saved} max={g.target} color={g.color} height={10} />
+                      <div className="flex justify-between mt-2 text-xs text-gray-500">
+                        <span>{fmt(g.saved)} saved</span>
+                        <span className="font-medium">{pct(g.saved, g.target)}%</span>
+                        <span>{fmt(g.target)} goal</span>
+                      </div>
+                      {g.months !== Infinity && g.months > 0 && (
+                        <p className="mt-2 text-xs text-indigo-500 flex items-center gap-1"><Target size={12} /> Target date: {new Date(viewYear, viewMonth + g.months, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" })}</p>
+                      )}
+
+                      {/* Withdraw / Deposit buttons */}
+                      <div className="flex gap-2 mt-3">
+                        <button onClick={() => setSavingsWithdrawDraft({ goalId: g.id, type: "withdrawal", amount: "", description: "" })}
+                          className={`flex-1 flex items-center justify-center gap-1 text-xs font-medium py-2 rounded-lg transition ${dm('bg-rose-950/30 text-rose-400 hover:bg-rose-950/50', 'bg-rose-50 text-rose-600 hover:bg-rose-100')}`}>
+                          <ArrowUpCircle size={14} /> Withdraw
+                        </button>
+                        <button onClick={() => setSavingsWithdrawDraft({ goalId: g.id, type: "deposit", amount: "", description: "" })}
+                          className={`flex-1 flex items-center justify-center gap-1 text-xs font-medium py-2 rounded-lg transition ${dm('bg-emerald-950/30 text-emerald-400 hover:bg-emerald-950/50', 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100')}`}>
+                          <ArrowDownCircle size={14} /> Deposit
+                        </button>
+                      </div>
+
+                      {/* Withdraw/Deposit form */}
+                      {savingsWithdrawDraft && savingsWithdrawDraft.goalId === g.id && (
+                        <div className={`mt-3 p-3 rounded-xl border ${savingsWithdrawDraft.type === "withdrawal" ? dm('bg-rose-950/20 border-rose-800', 'bg-rose-50/50 border-rose-200') : dm('bg-emerald-950/20 border-emerald-800', 'bg-emerald-50/50 border-emerald-200')}`}>
+                          <p className={`text-xs font-semibold mb-2 ${savingsWithdrawDraft.type === "withdrawal" ? 'text-rose-500' : 'text-emerald-600'}`}>
+                            {savingsWithdrawDraft.type === "withdrawal" ? "Withdraw from" : "Deposit to"} {g.name}
+                          </p>
+                          <div className="flex gap-2">
+                            <input placeholder="What for?" value={savingsWithdrawDraft.description}
+                              onChange={(e) => setSavingsWithdrawDraft({ ...savingsWithdrawDraft, description: e.target.value })}
+                              className={`flex-1 px-3 py-1.5 border rounded-lg text-sm ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} autoFocus />
+                            <div className="relative w-28">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                              <input type="number" placeholder="Amount" value={savingsWithdrawDraft.amount}
+                                onChange={(e) => setSavingsWithdrawDraft({ ...savingsWithdrawDraft, amount: e.target.value })}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && savingsWithdrawDraft.amount && savingsWithdrawDraft.description) {
+                                    if (savingsWithdrawDraft.type === "withdrawal") withdrawFromGoal(g.id, +savingsWithdrawDraft.amount, savingsWithdrawDraft.description);
+                                    else depositToGoal(g.id, +savingsWithdrawDraft.amount, savingsWithdrawDraft.description);
+                                  }
+                                }}
+                                className={`w-full pl-6 pr-2 py-1.5 border rounded-lg text-sm ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                            </div>
+                          </div>
+                          <div className="flex gap-2 mt-2">
+                            <button onClick={() => {
+                              if (savingsWithdrawDraft.amount && savingsWithdrawDraft.description) {
+                                if (savingsWithdrawDraft.type === "withdrawal") withdrawFromGoal(g.id, +savingsWithdrawDraft.amount, savingsWithdrawDraft.description);
+                                else depositToGoal(g.id, +savingsWithdrawDraft.amount, savingsWithdrawDraft.description);
+                              }
+                            }} className={`flex-1 text-white rounded-lg text-xs font-medium py-1.5 transition ${savingsWithdrawDraft.type === "withdrawal" ? 'bg-rose-500 hover:bg-rose-600' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+                              <Check size={12} className="inline mr-1" /> Confirm
+                            </button>
+                            <button onClick={() => setSavingsWithdrawDraft(null)} className="px-3 text-gray-400 hover:text-gray-600 text-xs">Cancel</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Transaction history dropdown */}
+                      {txns.length > 0 && (
+                        <div className="mt-3">
+                          <button onClick={() => setExpandedGoalId(isExpanded ? null : g.id)}
+                            className={`w-full flex items-center justify-between text-xs font-medium py-1.5 px-2 rounded-lg transition ${dm('text-gray-400 hover:bg-slate-700', 'text-gray-500 hover:bg-gray-100')}`}>
+                            <span>{txns.length} transaction{txns.length > 1 ? 's' : ''}</span>
+                            <ChevronDown size={14} className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                          </button>
+                          {isExpanded && (
+                            <div className={`mt-1 space-y-1 max-h-48 overflow-y-auto rounded-lg ${dm('bg-slate-700/30', 'bg-gray-50')} p-2`}>
+                              {[...txns].reverse().map((txn) => (
+                                <div key={txn.id} className={`flex items-center gap-2 py-1.5 px-2 rounded-lg ${dm('hover:bg-slate-600/50', 'hover:bg-white')} transition`}>
+                                  {txn.type === "withdrawal" ? (
+                                    <ArrowUpCircle size={14} className="text-rose-500 flex-shrink-0" />
+                                  ) : (
+                                    <ArrowDownCircle size={14} className="text-emerald-500 flex-shrink-0" />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <p className={`text-xs font-medium ${dm('text-gray-200', 'text-gray-700')} truncate`}>{txn.description}</p>
+                                    <p className="text-[10px] text-gray-400">{new Date(txn.date + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                                  </div>
+                                  <span className={`text-xs font-bold flex-shrink-0 ${txn.type === "withdrawal" ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                    {txn.type === "withdrawal" ? "−" : "+"}{fmt(txn.amount)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+
+            <Card darkMode={darkMode}>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Savings Projection</h3>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={goalTimelines.map((g) => ({ name: g.name, Saved: g.saved, Remaining: Math.max(g.target - g.saved, 0) }))}>
+                  <XAxis dataKey="name" fontSize={12} />
+                  <YAxis tickFormatter={(v) => `$${v}`} fontSize={11} />
+                  <Tooltip formatter={(v) => fmt(v)} />
+                  <Legend />
+                  <Bar dataKey="Saved" stackId="a" fill="#6366f1" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="Remaining" stackId="a" fill="#e0e7ff" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Card>
+          </>
+        )}
+
+        {/* ═══════ EXPENSES TAB ═══════ */}
+        {tab === "expenses" && (
+          <>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900">Expenses — {monthLabel(viewYear, viewMonth)}</h2>
+              <button onClick={() => setExpDraft({ description: "", amount: "", category: "Other", date: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(Math.min(today.getDate(), new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0")}` })}
+                className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-indigo-700 transition">
+                <Plus size={16} /> Add Expense
+              </button>
+            </div>
+
+            {/* Feature 3: Manage Categories */}
+            <Card darkMode={darkMode} className={`border-l-4 border-indigo-500 mb-4`}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className={`text-sm font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>Manage Categories</h3>
+                <button onClick={() => setNewCatDraft({ name: "", color: COLORS[0] })} className="p-1 text-indigo-600 hover:bg-indigo-50 rounded"><Plus size={16} /></button>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                {customCategories.map((cat, idx) => (
+                  <div key={cat.name} className={`p-2 rounded flex items-center gap-2 ${darkMode ? 'bg-slate-700' : 'bg-gray-100'}`}>
+                    <div className="w-4 h-4 rounded" style={{ backgroundColor: cat.color }} />
+                    <span className={`text-xs font-medium ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>{cat.name}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            {newCatDraft && (
+              <Card darkMode={darkMode} className="border-indigo-200 mb-4">
+                <div className="space-y-3">
+                  <h4 className={`text-sm font-semibold ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>Add New Category</h4>
+                  <div className="flex gap-3">
+                    <input
+                      type="text"
+                      placeholder="Category name"
+                      value={newCatDraft.name}
+                      onChange={(e) => setNewCatDraft({ ...newCatDraft, name: e.target.value })}
+                      className={`flex-1 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-200'}`}
+                    />
+                    <div className="flex items-center gap-2">
+                      <label className={`text-xs font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Color:</label>
+                      <input
+                        type="color"
+                        value={newCatDraft.color}
+                        onChange={(e) => setNewCatDraft({ ...newCatDraft, color: e.target.value })}
+                        className="w-10 h-10 border rounded cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      onClick={() => {
+                        if (newCatDraft.name.trim()) {
+                          setCustomCategories([...customCategories, { name: newCatDraft.name.trim(), color: newCatDraft.color }]);
+                          setNewCatDraft(null);
+                        }
+                      }}
+                      className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+                    >
+                      <Check size={14} className="inline mr-1" /> Save
+                    </button>
+                    <button onClick={() => setNewCatDraft(null)} className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300">
+                      <X size={14} className="inline mr-1" /> Cancel
+                    </button>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* Budget Targets Card */}
+            <Card darkMode={darkMode} className={`border-l-4 ${dm('border-purple-500', 'border-purple-400')} mb-4`}>
+              <h3 className={`text-sm font-semibold mb-3 ${dm('text-gray-200', 'text-gray-700')}`}>Budget Targets</h3>
+
+              {Object.entries(categoryBudgets).length > 0 ? (
+                <div className="space-y-3 mb-4">
+                  {Object.entries(categoryBudgets).map(([catName, budgetAmount]) => {
+                    const spent = expByCategory.find(e => e.name === catName)?.value || 0;
+                    const isOverBudget = spent > budgetAmount;
+                    const pctSpent = pct(spent, budgetAmount);
+                    return (
+                      <div key={catName} className={`p-3 rounded-lg ${dm('bg-slate-700/50', 'bg-gray-50')}`}>
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <h4 className={`text-sm font-medium ${dm('text-gray-200', 'text-gray-800')}`}>{catName}</h4>
+                            <div className="flex gap-4 text-xs mt-1">
+                              <span className={dm('text-gray-400', 'text-gray-600')}>Target: {fmt(budgetAmount)}</span>
+                              <span className={`font-medium ${isOverBudget ? 'text-rose-500' : dm('text-emerald-400', 'text-emerald-600')}`}>Spent: {fmt(spent)}</span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => {
+                              const newBudgets = { ...categoryBudgets };
+                              delete newBudgets[catName];
+                              setCategoryBudgets(newBudgets);
+                            }}
+                            className={`p-1 flex-shrink-0 rounded hover:${dm('bg-slate-600', 'bg-gray-200')}`}
+                          >
+                            <Trash2 size={14} className="text-rose-500" />
+                          </button>
+                        </div>
+                        <ProgressBar value={spent} max={budgetAmount} color={isOverBudget ? "#f43f5e" : "#6366f1"} height={6} />
+                        {isOverBudget && (
+                          <div className="flex items-center gap-1.5 mt-2 text-xs text-rose-500">
+                            <AlertCircle size={12} />
+                            <span>Over budget by {fmt(spent - budgetAmount)}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className={`text-xs text-center py-3 ${dm('text-gray-400', 'text-gray-500')}`}>No budget targets set</p>
+              )}
+
+              {budgetDraft ? (
+                <div className={`p-3 rounded-lg border-2 ${dm('bg-slate-700/50 border-slate-600', 'bg-indigo-50 border-indigo-200')} space-y-2`}>
+                  <h4 className={`text-xs font-semibold ${dm('text-gray-200', 'text-gray-700')}`}>Add Budget Target</h4>
+                  <div className="flex gap-2">
+                    <select
+                      value={budgetDraft.category}
+                      onChange={(e) => setBudgetDraft({ ...budgetDraft, category: e.target.value })}
+                      className={`flex-1 px-2 py-1.5 text-sm rounded border focus:outline-none focus:ring-2 focus:ring-indigo-400 ${dm('bg-slate-600 border-slate-500 text-white', 'bg-white border-gray-200')}`}
+                    >
+                      <option value="">Select category...</option>
+                      {customCategories.filter(cat => !categoryBudgets[cat.name]).map(cat => (
+                        <option key={cat.name} value={cat.name}>{cat.name}</option>
+                      ))}
+                    </select>
+                    <div className="relative">
+                      <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-sm ${dm('text-gray-400', 'text-gray-500')}`}>$</span>
+                      <input
+                        type="number"
+                        placeholder="Amount"
+                        value={budgetDraft.amount}
+                        onChange={(e) => setBudgetDraft({ ...budgetDraft, amount: e.target.value })}
+                        className={`w-20 pl-6 pr-2 py-1.5 text-sm rounded border focus:outline-none focus:ring-2 focus:ring-indigo-400 ${dm('bg-slate-600 border-slate-500 text-white', 'bg-white border-gray-200')}`}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        if (budgetDraft.category && budgetDraft.amount) {
+                          setCategoryBudgets({ ...categoryBudgets, [budgetDraft.category]: +budgetDraft.amount });
+                          setBudgetDraft(null);
+                        }
+                      }}
+                      className="flex-1 px-2 py-1.5 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setBudgetDraft(null)}
+                      className={`flex-1 px-2 py-1.5 rounded text-xs font-medium ${dm('bg-slate-600 text-gray-200 hover:bg-slate-500', 'bg-gray-200 text-gray-700 hover:bg-gray-300')}`}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setBudgetDraft({ category: "", amount: "" })}
+                  className={`w-full px-3 py-2 border-2 border-dashed rounded-lg text-sm font-medium transition ${dm('border-slate-600 text-purple-300 hover:bg-slate-700/30', 'border-purple-300 text-purple-600 hover:bg-purple-50')}`}
+                >
+                  <Plus size={14} className="inline mr-1" /> Add Budget Target
+                </button>
+              )}
+            </Card>
+
+            {/* Spending Alerts */}
+            {Object.entries(categoryBudgets).some(([cat, budget]) => {
+              const spent = expByCategory.find(e => e.name === cat)?.value || 0;
+              return spent >= budget * 0.75;
+            }) && (
+              <div className="space-y-2">
+                {Object.entries(categoryBudgets).map(([cat, budget]) => {
+                  const spent = expByCategory.find(e => e.name === cat)?.value || 0;
+                  const ratio = spent / budget;
+                  if (ratio < 0.75) return null;
+                  const level = ratio >= 1 ? { bg: dm('bg-rose-950/30 border-rose-800', 'bg-rose-50 border-rose-200'), text: dm('text-rose-300', 'text-rose-700'), icon: 'text-rose-500', label: 'Over budget!' }
+                    : ratio >= 0.9 ? { bg: dm('bg-amber-950/30 border-amber-800', 'bg-amber-50 border-amber-200'), text: dm('text-amber-300', 'text-amber-700'), icon: 'text-amber-500', label: '90% spent' }
+                    : { bg: dm('bg-yellow-950/30 border-yellow-800', 'bg-yellow-50 border-yellow-200'), text: dm('text-yellow-300', 'text-yellow-700'), icon: 'text-yellow-500', label: '75% spent' };
+                  return (
+                    <div key={cat} className={`flex items-center gap-3 p-3 rounded-xl border ${level.bg}`}>
+                      <AlertCircle size={18} className={level.icon} />
+                      <div className="flex-1">
+                        <p className={`text-sm font-medium ${level.text}`}>{cat}: {level.label}</p>
+                        <p className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>{fmt(spent)} of {fmt(budget)} ({Math.round(ratio * 100)}%)</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {expDraft && (
+              <Card darkMode={darkMode} className="border-indigo-200 bg-indigo-50/30">
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <input placeholder="Description" value={expDraft.description} onChange={(e) => setExpDraft({ ...expDraft, description: e.target.value })}
+                      className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                      <input type="number" placeholder="Amount" value={expDraft.amount} onChange={(e) => setExpDraft({ ...expDraft, amount: e.target.value })}
+                        className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
+                    <select value={expDraft.category} onChange={(e) => {
+                      const cat = e.target.value;
+                      setExpDraft({ ...expDraft, category: cat, goalId: cat === "Savings" ? (goals[0]?.id || "") : "", description: cat === "Savings" && !expDraft.description ? (goals[0]?.name || "") + " contribution" : expDraft.description });
+                    }}
+                      className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                      {EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                    </select>
+                    <input type="date" value={expDraft.date} onChange={(e) => setExpDraft({ ...expDraft, date: e.target.value })}
+                      className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  {expDraft.category === "Savings" && (
+                    <div className="flex items-center gap-3 p-2.5 bg-cyan-50 rounded-lg border border-cyan-100">
+                      <PiggyBank size={16} className="text-cyan-500 flex-shrink-0" />
+                      <select value={expDraft.goalId || ""} onChange={(e) => {
+                        const goal = goals.find((g) => g.id === e.target.value);
+                        setExpDraft({ ...expDraft, goalId: e.target.value, description: goal ? `${goal.name} contribution` : expDraft.description });
+                      }}
+                        className="flex-1 px-3 py-1.5 border border-cyan-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                        <option value="">Select savings goal...</option>
+                        {goals.map((g) => <option key={g.id} value={g.id}>{g.name} ({fmt(g.saved)} / {fmt(g.target)})</option>)}
+                      </select>
+                      <span className="text-xs text-cyan-600 font-medium whitespace-nowrap">Credits goal</span>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <button onClick={() => { if (expDraft.description && expDraft.amount && (expDraft.category !== "Savings" || expDraft.goalId)) addExpense({ ...expDraft, amount: +expDraft.amount }); }}
+                      className="flex-1 bg-indigo-600 text-white rounded-lg text-sm font-medium py-2 hover:bg-indigo-700 transition flex items-center justify-center gap-1"><Check size={14} /> Save</button>
+                    <button onClick={() => setExpDraft(null)} className="px-4 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard darkMode={darkMode} icon={Calendar} label="Recurring Bills" value={fmt(totalBills)} sub={`${bills.length} bills`} color="amber" />
+              <StatCard darkMode={darkMode} icon={CreditCard} label="Debt Payments" value={fmt(totalDebtPayments)} sub={`${debts.length} debts`} color="rose" />
+              <StatCard darkMode={darkMode} icon={PiggyBank} label="Savings" value={fmt(totalSavingsContrib)} sub={`${goals.length} goals`} color="cyan" />
+              <StatCard darkMode={darkMode} icon={DollarSign} label="Other Spending" value={fmt(totalManualExpenses)} sub={`${manualExpenses.length} items`} color="indigo" />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <Card darkMode={darkMode} className="lg:col-span-1">
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">By Category</h3>
+                {expByCategory.length === 0 ? <EmptyState icon={DollarSign} message="No expenses this month" /> : (
+                  <>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <PieChart>
+                        <Pie data={expByCategory} cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={2} dataKey="value">
+                          {expByCategory.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                        </Pie>
+                        <Tooltip formatter={(v) => fmt(v)} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="space-y-1.5 mt-2">
+                      {expByCategory.map((c, i) => (
+                        <div key={c.name} className="flex items-center gap-2 text-xs">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                          <span className="flex-1 text-gray-600">{c.name}</span>
+                          <span className="font-medium text-gray-800">{fmt(c.value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </Card>
+
+              <Card darkMode={darkMode} className="lg:col-span-2">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">All Expenses This Month</h3>
+                {allMonthExpenses.length === 0 ? <EmptyState icon={DollarSign} message="No expenses this month" /> : (
+                  <div className="space-y-1.5 max-h-[28rem] overflow-y-auto">
+                    {[...allMonthExpenses].sort((a, b) => a.date.localeCompare(b.date)).map((e) => {
+                      const typeBadge = {
+                        bill: { bg: "bg-amber-100", text: "text-amber-700", label: "Bill", iconBg: "bg-amber-50", iconText: "text-amber-500" },
+                        debt: { bg: "bg-rose-100", text: "text-rose-700", label: "Debt", iconBg: "bg-rose-50", iconText: "text-rose-500" },
+                        savings: { bg: "bg-cyan-100", text: "text-cyan-700", label: "Savings", iconBg: "bg-cyan-50", iconText: "text-cyan-500" },
+                        manual: { bg: "bg-indigo-100", text: "text-indigo-700", label: "", iconBg: "bg-indigo-50", iconText: "text-indigo-500" },
+                      }[e.type];
+                      return (
+                        <div key={e.id} className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-gray-50 transition group">
+                          <div className={`w-8 h-8 flex-shrink-0 rounded-lg ${typeBadge.iconBg} ${typeBadge.iconText} text-xs font-bold flex items-center justify-center`}>
+                            {new Date(e.date + "T12:00").getDate()}
+                          </div>
+                          <div className="flex-1 min-w-0 overflow-hidden">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm font-medium text-gray-800 truncate">{e.description}</p>
+                              {e.recurring && (
+                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 ${typeBadge.bg} ${typeBadge.text}`}>{typeBadge.label}</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-400 truncate">
+                              {e.category}
+                              {e.goalId && (() => {
+                                const goal = goals.find((g) => g.id === e.goalId);
+                                return goal ? ` · ${goal.name} (${pct(goal.saved, goal.target)}%)` : "";
+                              })()}
+                            </p>
+                          </div>
+                          <span className="text-sm font-semibold text-gray-700 flex-shrink-0">{fmt(e.amount)}</span>
+                          {!e.recurring ? (
+                            <button onClick={() => removeExpense(e.id)} className="flex-shrink-0 text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
+                          ) : (
+                            <div className="w-3.5 flex-shrink-0" />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="mt-3 pt-3 border-t border-gray-100 space-y-1">
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <span>Bills</span><span>{fmt(totalBills)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <span>Debt payments</span><span>{fmt(totalDebtPayments)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <span>Savings contributions</span><span>{fmt(totalSavingsContrib)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <span>Other spending</span><span>{fmt(totalManualExpenses)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-bold pt-1 border-t border-gray-100">
+                    <span className="text-gray-600">Total — {monthLabel(viewYear, viewMonth)}</span>
+                    <span className="text-gray-900">{fmt(totalAllExpenses)}</span>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Merchant Tracking */}
+            {allMonthExpenses.filter(e => !e.recurring).length > 0 && (
+              <Card darkMode={darkMode}>
+                <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Top Merchants</h3>
+                <div className="space-y-2">
+                  {(() => {
+                    const merchants = {};
+                    allMonthExpenses.filter(e => !e.recurring).forEach(e => {
+                      const name = e.description || 'Unknown';
+                      if (!merchants[name]) merchants[name] = { count: 0, total: 0 };
+                      merchants[name].count++;
+                      merchants[name].total += e.amount;
+                    });
+                    return Object.entries(merchants)
+                      .sort((a, b) => b[1].total - a[1].total)
+                      .slice(0, 10)
+                      .map(([name, data], i) => (
+                        <div key={name} className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('hover:bg-slate-700', 'hover:bg-gray-50')} transition`}>
+                          <div className={`w-8 h-8 rounded-lg ${dm('bg-slate-700', 'bg-indigo-50')} ${dm('text-indigo-400', 'text-indigo-600')} text-xs font-bold flex items-center justify-center`}>
+                            {i + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-medium ${dm('text-gray-200', 'text-gray-800')} truncate`}>{name}</p>
+                            <p className="text-xs text-gray-400">{data.count} transaction{data.count > 1 ? 's' : ''}</p>
+                          </div>
+                          <span className={`text-sm font-semibold ${dm('text-gray-200', 'text-gray-700')}`}>{fmt(data.total)}</span>
+                        </div>
+                      ));
+                  })()}
+                </div>
+              </Card>
+            )}
+          </>
+        )}
+
+        {/* ═══════ DEBT TAB ═══════ */}
+        {tab === "debt" && (
+          <>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900">Debt Payoff Tracker</h2>
+              <button onClick={() => setDebtDraft({ name: "", balance: "", rate: "", minPayment: "", extraPayment: "" })}
+                className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-indigo-700 transition">
+                <Plus size={16} /> Add Debt
+              </button>
+            </div>
+
+            {debtDraft && (
+              <Card darkMode={darkMode} className="border-indigo-200 bg-indigo-50/30">
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+                  <input placeholder="Debt name" value={debtDraft.name} onChange={(e) => setDebtDraft({ ...debtDraft, name: e.target.value })}
+                    className="col-span-2 sm:col-span-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input type="number" placeholder="Balance" value={debtDraft.balance} onChange={(e) => setDebtDraft({ ...debtDraft, balance: e.target.value })}
+                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div className="relative">
+                    <input type="number" step="0.1" placeholder="APR %" value={debtDraft.rate} onChange={(e) => setDebtDraft({ ...debtDraft, rate: e.target.value })}
+                      className="w-full pr-7 pl-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input type="number" placeholder="Min payment" value={debtDraft.minPayment} onChange={(e) => setDebtDraft({ ...debtDraft, minPayment: e.target.value })}
+                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input type="number" placeholder="Extra" value={debtDraft.extraPayment} onChange={(e) => setDebtDraft({ ...debtDraft, extraPayment: e.target.value })}
+                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => { if (debtDraft.name && debtDraft.balance) addDebt({ ...debtDraft, balance: +debtDraft.balance, rate: +debtDraft.rate || 0, minPayment: +debtDraft.minPayment || 0, extraPayment: +debtDraft.extraPayment || 0 }); }}
+                      className="flex-1 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1"><Check size={14} /> Save</button>
+                    <button onClick={() => setDebtDraft(null)} className="px-3 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <StatCard darkMode={darkMode} icon={CreditCard} label="Total Debt" value={fmt(totalDebtBalance)} color="rose" />
+              <StatCard darkMode={darkMode} icon={DollarSign} label="Monthly Payments" value={fmt(totalDebtPayments)} sub="Min + extra" color="amber" />
+              <StatCard darkMode={darkMode} icon={TrendingUp} label="Debt-to-Income" value={`${pct(totalDebtPayments, monthlyIncome)}%`} sub={monthlyIncome > 0 && pct(totalDebtPayments, monthlyIncome) > 36 ? "Above recommended 36%" : "Healthy ratio"} color={monthlyIncome > 0 && pct(totalDebtPayments, monthlyIncome) > 36 ? "rose" : "green"} />
+            </div>
+
+            {debtTimelines.length === 0 ? <EmptyState icon={CreditCard} message="No debts tracked — add one!" /> : (
+              <div className="space-y-4">
+                {debtTimelines.map((d) => (
+                  <Card key={d.id}>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-gray-800">{d.name}</h3>
+                        <p className="text-xs text-gray-400">{d.rate}% APR · {fmt(d.minPayment)} min{d.extraPayment > 0 ? ` + ${fmt(d.extraPayment)} extra` : ""}</p>
+                      </div>
+                      <button onClick={() => removeDebt(d.id)} className="text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
+                    </div>
+                    <div className="mt-3">
+                      <div className="flex justify-between text-xs text-gray-500 mb-1">
+                        <span>{fmt(0)}</span>
+                        <span className="font-medium text-gray-700">{fmt(d.balance)} remaining</span>
+                      </div>
+                      <ProgressBar value={d.balance} max={d.balance + d.totalInterest} color="#f43f5e" height={10} />
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+                      <div className="bg-gray-50 rounded-lg py-2">
+                        <p className="text-xs text-gray-400">Payoff</p>
+                        <p className="text-sm font-bold text-gray-800">{d.months === Infinity ? "N/A" : `${Math.floor(d.months / 12)}y ${d.months % 12}m`}</p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg py-2">
+                        <p className="text-xs text-gray-400">Total Interest</p>
+                        <p className="text-sm font-bold text-rose-600">{d.totalInterest === Infinity ? "N/A" : fmt(d.totalInterest)}</p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg py-2">
+                        <p className="text-xs text-gray-400">Debt-Free Date</p>
+                        <p className="text-sm font-bold text-emerald-600">{d.months === Infinity ? "N/A" : new Date(viewYear, viewMonth + d.months, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</p>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {debtTimelines.length > 0 && (
+              <Card darkMode={darkMode}>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Debt Comparison</h3>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={debtTimelines.map((d) => ({ name: d.name, Balance: d.balance, Interest: d.totalInterest === Infinity ? 0 : Math.round(d.totalInterest) }))}>
+                    <XAxis dataKey="name" fontSize={12} />
+                    <YAxis tickFormatter={(v) => `$${v}`} fontSize={11} />
+                    <Tooltip formatter={(v) => fmt(v)} />
+                    <Legend />
+                    <Bar dataKey="Balance" fill="#f43f5e" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="Interest" fill="#fda4af" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card>
+            )}
+
+            {/* Snowball vs Avalanche */}
+            {debtStrategies && (
+              <Card darkMode={darkMode}>
+                <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Snowball vs Avalanche</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className={`p-4 rounded-xl border-2 ${dm('border-cyan-700 bg-cyan-950/20', 'border-cyan-200 bg-cyan-50/50')}`}>
+                    <h4 className={`text-sm font-bold ${dm('text-cyan-300', 'text-cyan-700')} mb-2`}>Avalanche <span className="text-xs font-normal">(highest rate first)</span></h4>
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex justify-between"><span className={dm('text-gray-400', 'text-gray-600')}>Payoff time</span><span className={`font-bold ${dm('text-white', 'text-gray-900')}`}>{Math.floor(debtStrategies.avalanche.months / 12)}y {debtStrategies.avalanche.months % 12}m</span></div>
+                      <div className="flex justify-between"><span className={dm('text-gray-400', 'text-gray-600')}>Total interest</span><span className="font-bold text-rose-500">{fmt(debtStrategies.avalanche.totalInterest)}</span></div>
+                      <div className="flex justify-between"><span className={dm('text-gray-400', 'text-gray-600')}>Total paid</span><span className={`font-bold ${dm('text-white', 'text-gray-900')}`}>{fmt(debtStrategies.avalanche.totalPaid)}</span></div>
+                    </div>
+                  </div>
+                  <div className={`p-4 rounded-xl border-2 ${dm('border-amber-700 bg-amber-950/20', 'border-amber-200 bg-amber-50/50')}`}>
+                    <h4 className={`text-sm font-bold ${dm('text-amber-300', 'text-amber-700')} mb-2`}>Snowball <span className="text-xs font-normal">(smallest balance first)</span></h4>
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex justify-between"><span className={dm('text-gray-400', 'text-gray-600')}>Payoff time</span><span className={`font-bold ${dm('text-white', 'text-gray-900')}`}>{Math.floor(debtStrategies.snowball.months / 12)}y {debtStrategies.snowball.months % 12}m</span></div>
+                      <div className="flex justify-between"><span className={dm('text-gray-400', 'text-gray-600')}>Total interest</span><span className="font-bold text-rose-500">{fmt(debtStrategies.snowball.totalInterest)}</span></div>
+                      <div className="flex justify-between"><span className={dm('text-gray-400', 'text-gray-600')}>Total paid</span><span className={`font-bold ${dm('text-white', 'text-gray-900')}`}>{fmt(debtStrategies.snowball.totalPaid)}</span></div>
+                    </div>
+                  </div>
+                </div>
+                {debtStrategies.avalanche.totalInterest < debtStrategies.snowball.totalInterest && (
+                  <p className={`text-xs mt-3 ${dm('text-cyan-400', 'text-cyan-600')} font-medium`}>
+                    Avalanche saves you {fmt(debtStrategies.snowball.totalInterest - debtStrategies.avalanche.totalInterest)} in interest!
+                  </p>
+                )}
+              </Card>
+            )}
+
+            {/* Extra Payment Simulator */}
+            {debts.length > 0 && (
+              <Card darkMode={darkMode}>
+                <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Extra Payment Simulator</h3>
+                <p className={`text-xs ${dm('text-gray-400', 'text-gray-500')} mb-3`}>See how extra monthly payments affect your payoff timeline.</p>
+                <div className="flex items-center gap-3 mb-4">
+                  <span className={`text-sm ${dm('text-gray-300', 'text-gray-600')}`}>Extra/mo:</span>
+                  <div className="relative flex-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input type="range" min="0" max="1000" step="25" value={simExtraPayment}
+                      onChange={(e) => setSimExtraPayment(+e.target.value)}
+                      className="w-full" />
+                  </div>
+                  <span className={`text-sm font-bold ${dm('text-white', 'text-gray-900')} w-20 text-right`}>{fmt(simExtraPayment)}</span>
+                </div>
+                <div className="space-y-2">
+                  {debts.map((d) => {
+                    const monthlyRate = d.rate / 100 / 12;
+                    const basePay = d.minPayment + d.extraPayment;
+                    const boostPay = basePay + simExtraPayment;
+                    const calc = (pay) => {
+                      if (pay <= 0) return { months: Infinity, interest: Infinity };
+                      let bal = d.balance, mo = 0, int = 0;
+                      while (bal > 0 && mo < 600) { const i = bal * monthlyRate; int += i; bal = bal + i - pay; mo++; if (bal < 0) bal = 0; }
+                      return { months: mo, interest: int };
+                    };
+                    const base = calc(basePay);
+                    const boosted = calc(boostPay);
+                    const savedMonths = base.months - boosted.months;
+                    const savedInterest = base.interest - boosted.interest;
+                    return (
+                      <div key={d.id} className={`p-3 rounded-lg ${dm('bg-slate-700/50', 'bg-gray-50')} flex items-center justify-between`}>
+                        <div>
+                          <p className={`text-sm font-medium ${dm('text-gray-200', 'text-gray-800')}`}>{d.name}</p>
+                          <p className="text-xs text-gray-400">{fmt(d.balance)} at {d.rate}%</p>
+                        </div>
+                        <div className="text-right">
+                          {simExtraPayment > 0 ? (
+                            <>
+                              <p className="text-sm font-bold text-emerald-500">Save {savedMonths > 0 ? `${savedMonths} months` : "—"}</p>
+                              <p className="text-xs text-emerald-400">{savedInterest > 0 ? `${fmt(savedInterest)} less interest` : ""}</p>
+                            </>
+                          ) : (
+                            <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Drag slider to simulate</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
+          </>
+        )}
+        {/* ═══════ NET WORTH TAB ═══════ */}
+        {tab === "networth" && (
+          <>
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')}`}>Net Worth</h2>
+              <button onClick={() => { snapshotNetWorth(); snapshotBalances(); }}
+                className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-indigo-700 transition">
+                <Check size={16} /> Snapshot
+              </button>
+            </div>
+
+            {/* Summary cards */}
+            <div className="grid grid-cols-3 gap-4">
+              <StatCard darkMode={darkMode} icon={TrendingUp} label="Total Assets" value={fmt(totalAssets)} color="green" />
+              <StatCard darkMode={darkMode} icon={TrendingDown} label="Total Liabilities" value={fmt(totalLiabilities)} color="rose" />
+              <StatCard darkMode={darkMode} icon={Landmark} label="Net Worth" value={fmt(netWorth)} sub={netWorth >= 0 ? "Positive" : "Negative"} color={netWorth >= 0 ? "green" : "rose"} />
+            </div>
+
+            {/* Net Worth bar visualization */}
+            <Card darkMode={darkMode}>
+              <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Assets vs Liabilities</h3>
+              <div className="space-y-2">
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className={dm('text-gray-600', 'text-gray-400')}>Assets</span>
+                    <span className="text-emerald-600 font-medium">{fmt(totalAssets)}</span>
+                  </div>
+                  <div className={`w-full h-5 rounded-full ${dm('bg-gray-100', 'bg-slate-700')} overflow-hidden`}>
+                    <div className="h-full bg-emerald-500 rounded-full transition-all duration-500" style={{ width: `${totalAssets + totalLiabilities > 0 ? (totalAssets / (totalAssets + totalLiabilities)) * 100 : 50}%` }} />
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className={dm('text-gray-600', 'text-gray-400')}>Liabilities</span>
+                    <span className="text-rose-500 font-medium">{fmt(totalLiabilities)}</span>
+                  </div>
+                  <div className={`w-full h-5 rounded-full ${dm('bg-gray-100', 'bg-slate-700')} overflow-hidden`}>
+                    <div className="h-full bg-rose-500 rounded-full transition-all duration-500" style={{ width: `${totalAssets + totalLiabilities > 0 ? (totalLiabilities / (totalAssets + totalLiabilities)) * 100 : 50}%` }} />
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            {/* Asset Allocation Pie Chart */}
+            {assets.length > 0 && (
+              <Card darkMode={darkMode}>
+                <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Asset Allocation</h3>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-center">
+                  <ResponsiveContainer width="100%" height={200}>
+                    <PieChart>
+                      <Pie data={(() => {
+                        const map = {};
+                        assets.forEach(a => { map[a.category] = (map[a.category] || 0) + a.balance; });
+                        return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+                      })()} cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={2} dataKey="value">
+                        {(() => {
+                          const map = {};
+                          assets.forEach(a => { map[a.category] = (map[a.category] || 0) + a.balance; });
+                          return Object.entries(map).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />);
+                        })()}
+                      </Pie>
+                      <Tooltip formatter={(v) => fmt(v)} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="space-y-2">
+                    {(() => {
+                      const map = {};
+                      assets.forEach(a => { map[a.category] = (map[a.category] || 0) + a.balance; });
+                      return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([cat, val], i) => (
+                        <div key={cat} className="flex items-center gap-2 text-sm">
+                          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                          <span className={`flex-1 ${dm('text-gray-300', 'text-gray-600')}`}>{cat}</span>
+                          <span className={`font-medium ${dm('text-gray-200', 'text-gray-800')}`}>{fmt(val)}</span>
+                          <span className="text-xs text-gray-400">{pct(val, totalAssets)}%</span>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* ── Assets ── */}
+              <Card darkMode={darkMode}>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Assets</h3>
+                  <button onClick={() => setAssetDraft({ name: "", category: "Cash", balance: "" })}
+                    className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition flex items-center gap-1">
+                    <Plus size={12} /> Add
+                  </button>
+                </div>
+
+                {assetDraft && (
+                  <div className={`p-3 rounded-xl border mb-3 ${dm('bg-emerald-50/50 border-emerald-200', 'bg-emerald-950/30 border-emerald-800')}`}>
+                    <div className="grid grid-cols-3 gap-2">
+                      <input placeholder="Name" value={assetDraft.name} onChange={(e) => setAssetDraft({ ...assetDraft, name: e.target.value })}
+                        className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                      <select value={assetDraft.category} onChange={(e) => setAssetDraft({ ...assetDraft, category: e.target.value })}
+                        className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                        {ASSET_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                      </select>
+                      <div className="relative">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                        <input type="number" placeholder="Balance" value={assetDraft.balance} onChange={(e) => setAssetDraft({ ...assetDraft, balance: e.target.value })}
+                          className="w-full pl-6 pr-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                      </div>
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => { if (assetDraft.name && assetDraft.balance) addAsset({ ...assetDraft, balance: +assetDraft.balance }); }}
+                        className="flex-1 bg-emerald-600 text-white rounded-lg text-xs font-medium py-1.5 hover:bg-emerald-700 transition">Save</button>
+                      <button onClick={() => setAssetDraft(null)} className="px-3 text-gray-400 hover:text-gray-600 text-xs">Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {assets.length === 0 ? <EmptyState icon={Wallet} message="No assets tracked yet" /> : (
+                  <div className="space-y-1.5">
+                    {assets.map((a) => (
+                      <div key={a.id} className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-700')} transition group`}>
+                        <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 text-xs font-bold flex items-center justify-center">
+                          {a.category.charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')} truncate`}>{a.name}</p>
+                          <p className="text-xs text-gray-400">{a.category}</p>
+                        </div>
+                        <input type="number" value={a.balance} onChange={(e) => updateAssetBalance(a.id, +e.target.value)}
+                          className={`w-24 text-right text-sm font-semibold ${dm('text-emerald-600 bg-transparent', 'text-emerald-400 bg-transparent')} border-b border-transparent hover:border-gray-300 focus:border-emerald-500 focus:outline-none py-1`} />
+                        <button onClick={() => removeAsset(a.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
+                      </div>
+                    ))}
+                    <div className={`flex justify-between pt-2 mt-2 border-t ${dm('border-gray-100', 'border-slate-700')}`}>
+                      <span className={`text-sm font-semibold ${dm('text-gray-600', 'text-gray-300')}`}>Total Assets</span>
+                      <span className="text-sm font-bold text-emerald-600">{fmt(totalAssets)}</span>
+                    </div>
+                  </div>
+                )}
+              </Card>
+
+              {/* ── Liabilities ── */}
+              <Card darkMode={darkMode}>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Liabilities</h3>
+                  <button onClick={() => setLiabilityDraft({ name: "", category: "Other", balance: "" })}
+                    className="text-xs bg-rose-500 text-white px-3 py-1.5 rounded-lg hover:bg-rose-600 transition flex items-center gap-1">
+                    <Plus size={12} /> Add
+                  </button>
+                </div>
+
+                {liabilityDraft && (
+                  <div className={`p-3 rounded-xl border mb-3 ${dm('bg-rose-50/50 border-rose-200', 'bg-rose-950/30 border-rose-800')}`}>
+                    <div className="grid grid-cols-3 gap-2">
+                      <input placeholder="Name" value={liabilityDraft.name} onChange={(e) => setLiabilityDraft({ ...liabilityDraft, name: e.target.value })}
+                        className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                      <select value={liabilityDraft.category} onChange={(e) => setLiabilityDraft({ ...liabilityDraft, category: e.target.value })}
+                        className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500">
+                        {["Mortgage", "Medical", "Personal Loan", "Credit Card", "Tax", "Other"].map((c) => <option key={c}>{c}</option>)}
+                      </select>
+                      <div className="relative">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                        <input type="number" placeholder="Balance" value={liabilityDraft.balance} onChange={(e) => setLiabilityDraft({ ...liabilityDraft, balance: e.target.value })}
+                          className="w-full pl-6 pr-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                      </div>
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => { if (liabilityDraft.name && liabilityDraft.balance) addLiability({ ...liabilityDraft, balance: +liabilityDraft.balance }); }}
+                        className="flex-1 bg-rose-500 text-white rounded-lg text-xs font-medium py-1.5 hover:bg-rose-600 transition">Save</button>
+                      <button onClick={() => setLiabilityDraft(null)} className="px-3 text-gray-400 hover:text-gray-600 text-xs">Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {allLiabilities.length === 0 ? <EmptyState icon={CreditCard} message="No liabilities — great!" /> : (
+                  <div className="space-y-1.5">
+                    {allLiabilities.map((l) => (
+                      <div key={l.id} className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-700')} transition group`}>
+                        <div className={`w-8 h-8 rounded-lg ${l.fromDebt ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'} text-xs font-bold flex items-center justify-center`}>
+                          {l.category.charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')} truncate`}>{l.name}</p>
+                            {l.fromDebt && <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">From Debts</span>}
+                          </div>
+                          <p className="text-xs text-gray-400">{l.category}</p>
+                        </div>
+                        {l.fromDebt ? (
+                          <span className="text-sm font-semibold text-rose-500">{fmt(l.balance)}</span>
+                        ) : (
+                          <input type="number" value={l.balance} onChange={(e) => updateLiabilityBalance(l.id, +e.target.value)}
+                            className={`w-24 text-right text-sm font-semibold ${dm('text-rose-500 bg-transparent', 'text-rose-400 bg-transparent')} border-b border-transparent hover:border-gray-300 focus:border-rose-500 focus:outline-none py-1`} />
+                        )}
+                        {!l.fromDebt && (
+                          <button onClick={() => removeLiability(l.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
+                        )}
+                      </div>
+                    ))}
+                    <div className={`flex justify-between pt-2 mt-2 border-t ${dm('border-gray-100', 'border-slate-700')}`}>
+                      <span className={`text-sm font-semibold ${dm('text-gray-600', 'text-gray-300')}`}>Total Liabilities</span>
+                      <span className="text-sm font-bold text-rose-500">{fmt(totalLiabilities)}</span>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            {/* ── Trend Chart ── */}
+            <Card darkMode={darkMode}>
+              <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Net Worth Over Time</h3>
+              {netWorthHistory.length < 2 ? (
+                <div className={`text-center py-8 ${dm('text-gray-400', 'text-gray-500')}`}>
+                  <TrendingUp size={32} strokeWidth={1.2} className="mx-auto mb-2" />
+                  <p className="text-sm">Click "Snapshot" each month to build your trend.</p>
+                  <p className="text-xs mt-1">You have {netWorthHistory.length} snapshot{netWorthHistory.length !== 1 ? 's' : ''} so far.</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={250}>
+                  <AreaChart data={netWorthHistory}>
+                    <defs>
+                      <linearGradient id="nwFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="date" fontSize={11} tickFormatter={(d) => { const [y, m] = d.split('-'); return new Date(+y, +m - 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }); }} />
+                    <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} fontSize={11} />
+                    <Tooltip formatter={(v) => fmt(v)} labelFormatter={(d) => { const [y, m] = d.split('-'); return new Date(+y, +m - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); }} />
+                    <Area type="monotone" dataKey="netWorth" stroke="#6366f1" fill="url(#nwFill)" strokeWidth={2.5} name="Net Worth" />
+                    <Line type="monotone" dataKey="assets" stroke="#10b981" strokeWidth={1.5} dot={false} name="Assets" />
+                    <Line type="monotone" dataKey="liabilities" stroke="#f43f5e" strokeWidth={1.5} dot={false} name="Liabilities" />
+                    <Legend />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </Card>
+
+            {/* ── Balance History ── */}
+            {Object.keys(balanceHistory).length > 0 && (
+              <Card darkMode={darkMode}>
+                <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Account Balance History</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className={dm('border-b border-slate-700', 'border-b border-gray-200')}>
+                        <th className={`text-left py-2 px-2 font-medium ${dm('text-gray-400', 'text-gray-500')}`}>Account</th>
+                        {Object.keys(balanceHistory).sort().map(date => (
+                          <th key={date} className={`text-right py-2 px-2 font-medium ${dm('text-gray-400', 'text-gray-500')}`}>
+                            {(() => { const [y, m] = date.split('-'); return new Date(+y, +m - 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }); })()}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        const allAccounts = {};
+                        Object.values(balanceHistory).forEach(snap => {
+                          Object.entries(snap).forEach(([key, info]) => { allAccounts[key] = info; });
+                        });
+                        return Object.entries(allAccounts).map(([key, info]) => (
+                          <tr key={key} className={dm('border-b border-slate-800', 'border-b border-gray-100')}>
+                            <td className={`py-1.5 px-2 ${dm('text-gray-300', 'text-gray-700')} font-medium`}>
+                              <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${info.type === 'asset' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                              {info.name}
+                            </td>
+                            {Object.keys(balanceHistory).sort().map(date => {
+                              const snap = balanceHistory[date];
+                              const val = snap[key]?.balance;
+                              return (
+                                <td key={date} className={`py-1.5 px-2 text-right ${val !== undefined ? (info.type === 'asset' ? 'text-emerald-500' : 'text-rose-500') : dm('text-gray-600', 'text-gray-400')}`}>
+                                  {val !== undefined ? fmt(val) : '—'}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
+
+            {/* ── Milestones ── */}
+            <Card darkMode={darkMode}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Milestones</h3>
+                <button onClick={() => setMilestoneDraft({ label: "", target: "" })}
+                  className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition flex items-center gap-1">
+                  <Plus size={12} /> Add
+                </button>
+              </div>
+
+              {milestoneDraft && (
+                <div className={`p-3 rounded-xl border mb-3 ${dm('bg-indigo-50/50 border-indigo-200', 'bg-indigo-950/30 border-indigo-800')}`}>
+                  <div className="grid grid-cols-3 gap-2">
+                    <input placeholder="Label (e.g. $50K)" value={milestoneDraft.label} onChange={(e) => setMilestoneDraft({ ...milestoneDraft, label: e.target.value })}
+                      className="col-span-1 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    <div className="relative">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                      <input type="number" placeholder="Target amount" value={milestoneDraft.target} onChange={(e) => setMilestoneDraft({ ...milestoneDraft, target: e.target.value })}
+                        className="w-full pl-6 pr-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => { if (milestoneDraft.label && milestoneDraft.target) addMilestone({ ...milestoneDraft, target: +milestoneDraft.target }); }}
+                        className="flex-1 bg-indigo-600 text-white rounded-lg text-xs font-medium py-1.5 hover:bg-indigo-700 transition">Save</button>
+                      <button onClick={() => setMilestoneDraft(null)} className="px-2 text-gray-400 hover:text-gray-600 text-xs">Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {nwMilestones.length === 0 ? (
+                <p className={`text-sm ${dm('text-gray-400', 'text-gray-500')} text-center py-4`}>Set milestones to track your progress!</p>
+              ) : (
+                <div className="space-y-3">
+                  {nwMilestones.sort((a, b) => a.target - b.target).map((m) => {
+                    const progress = Math.max(0, Math.min(100, (netWorth / m.target) * 100));
+                    const reached = netWorth >= m.target;
+                    return (
+                      <div key={m.id}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            {reached ? <CheckCircle size={16} className="text-emerald-500" /> : <Target size={16} className={dm('text-gray-400', 'text-gray-500')} />}
+                            <span className={`text-sm font-medium ${reached ? 'text-emerald-600' : dm('text-gray-700', 'text-gray-300')}`}>{m.label}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>{fmt(netWorth)} / {fmt(m.target)}</span>
+                            <button onClick={() => removeMilestone(m.id)} className="text-gray-300 hover:text-rose-500 transition"><Trash2 size={12} /></button>
+                          </div>
+                        </div>
+                        <ProgressBar value={Math.max(0, netWorth)} max={m.target} color={reached ? "#10b981" : "#6366f1"} height={8} />
+                        <p className={`text-xs mt-0.5 ${reached ? 'text-emerald-500 font-medium' : dm('text-gray-400', 'text-gray-500')}`}>
+                          {reached ? "Milestone reached!" : `${Math.round(progress)}% — ${fmt(m.target - netWorth)} to go`}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          </>
+        )}
+
+        {/* ═══════ PAY CALCULATOR TAB ═══════ */}
+        {tab === "paycalc" && (
+          <>
+            <div className="flex items-center justify-between">
+              <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')}`}>{payCalcSettings.name}'s Pay Calculator</h2>
+              <button onClick={() => setPayCalcDraft({ hours: "", otHours: "", date: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`, tips: "" })}
+                className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-indigo-700 transition">
+                <Plus size={16} /> Log Hours
+              </button>
+            </div>
+
+            {/* Settings */}
+            <Card darkMode={darkMode}>
+              <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Pay Settings</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Name</label>
+                  <input value={payCalcSettings.name} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, name: e.target.value })}
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                </div>
+                <div>
+                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Hourly Rate</label>
+                  <div className="relative mt-1">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                    <input type="number" value={payCalcSettings.hourlyRate} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, hourlyRate: +e.target.value })}
+                      className={`w-full pl-6 pr-2 py-1.5 border rounded-lg text-sm ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                  </div>
+                </div>
+                <div>
+                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>OT Multiplier</label>
+                  <input type="number" step="0.1" value={payCalcSettings.otRate} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, otRate: +e.target.value })}
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                </div>
+                <div>
+                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Pre-Tax Deductions</label>
+                  <div className="relative mt-1">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                    <input type="number" value={payCalcSettings.preTaxDeductions} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, preTaxDeductions: +e.target.value })}
+                      className={`w-full pl-6 pr-2 py-1.5 border rounded-lg text-sm ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mt-3">
+                <div>
+                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Federal Tax %</label>
+                  <input type="number" step="0.5" value={payCalcSettings.federalRate} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, federalRate: +e.target.value })}
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                </div>
+                <div>
+                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>State Tax %</label>
+                  <input type="number" step="0.5" value={payCalcSettings.stateRate} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, stateRate: +e.target.value })}
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                </div>
+                <div>
+                  <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>FICA %</label>
+                  <input type="number" step="0.01" value={payCalcSettings.ficaRate} onChange={(e) => setPayCalcSettings({ ...payCalcSettings, ficaRate: +e.target.value })}
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm mt-1 ${dm('bg-slate-700 border-slate-600 text-white', 'border-gray-200')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                </div>
+              </div>
+            </Card>
+
+            {/* Log Hours Form */}
+            {payCalcDraft && (
+              <Card darkMode={darkMode} className={dm('border-indigo-200 bg-indigo-50/30', 'border-indigo-800 bg-indigo-950/30')}>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Regular Hours</label>
+                    <input type="number" step="0.25" placeholder="40" value={payCalcDraft.hours} onChange={(e) => setPayCalcDraft({ ...payCalcDraft, hours: e.target.value })}
+                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-indigo-500" autoFocus />
+                  </div>
+                  <div>
+                    <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>OT Hours</label>
+                    <input type="number" step="0.25" placeholder="0" value={payCalcDraft.otHours} onChange={(e) => setPayCalcDraft({ ...payCalcDraft, otHours: e.target.value })}
+                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div>
+                    <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Tips</label>
+                    <div className="relative mt-1">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                      <input type="number" placeholder="0" value={payCalcDraft.tips} onChange={(e) => setPayCalcDraft({ ...payCalcDraft, tips: e.target.value })}
+                        className="w-full pl-6 pr-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Pay Period End</label>
+                    <input type="date" value={payCalcDraft.date} onChange={(e) => setPayCalcDraft({ ...payCalcDraft, date: e.target.value })}
+                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <button onClick={() => {
+                    if (payCalcDraft.hours) {
+                      setPayCalcEntries([...payCalcEntries, { ...payCalcDraft, id: Math.random().toString(36).slice(2, 10), hours: +payCalcDraft.hours || 0, otHours: +payCalcDraft.otHours || 0, tips: +payCalcDraft.tips || 0 }]);
+                      setPayCalcDraft(null);
+                    }
+                  }} className="flex-1 bg-indigo-600 text-white rounded-lg text-sm font-medium py-2 hover:bg-indigo-700 transition flex items-center justify-center gap-1">
+                    <Check size={14} /> Save
+                  </button>
+                  <button onClick={() => setPayCalcDraft(null)} className="px-4 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                </div>
+              </Card>
+            )}
+
+            {/* Pay entries */}
+            {payCalcEntries.length === 0 ? (
+              <EmptyState icon={Clock} message="Log hours to see pay calculations" />
+            ) : (
+              <div className="space-y-3">
+                {[...payCalcEntries].reverse().map((entry) => {
+                  const regPay = entry.hours * payCalcSettings.hourlyRate;
+                  const otPay = entry.otHours * payCalcSettings.hourlyRate * payCalcSettings.otRate;
+                  const grossPay = regPay + otPay + entry.tips;
+                  const taxableIncome = grossPay - payCalcSettings.preTaxDeductions;
+                  const federal = taxableIncome * (payCalcSettings.federalRate / 100);
+                  const state = taxableIncome * (payCalcSettings.stateRate / 100);
+                  const fica = taxableIncome * (payCalcSettings.ficaRate / 100);
+                  const totalTax = federal + state + fica;
+                  const netPay = grossPay - payCalcSettings.preTaxDeductions - totalTax;
+                  return (
+                    <Card key={entry.id} darkMode={darkMode}>
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <p className={`text-sm font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>
+                            Pay Period: {new Date(entry.date + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </p>
+                          <p className="text-xs text-gray-400">{entry.hours}h regular{entry.otHours > 0 ? ` + ${entry.otHours}h OT` : ''}{entry.tips > 0 ? ` + ${fmt(entry.tips)} tips` : ''}</p>
+                        </div>
+                        <button onClick={() => setPayCalcEntries(payCalcEntries.filter(e => e.id !== entry.id))} className="text-gray-300 hover:text-rose-500 transition"><Trash2 size={14} /></button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className={`p-3 rounded-lg ${dm('bg-emerald-950/30', 'bg-emerald-50')}`}>
+                          <p className="text-xs text-gray-400 mb-1">Gross Pay</p>
+                          <p className="text-lg font-bold text-emerald-600">{fmt(grossPay)}</p>
+                          <div className="text-xs text-gray-400 mt-1 space-y-0.5">
+                            <div className="flex justify-between"><span>Regular ({entry.hours}h × {fmt(payCalcSettings.hourlyRate)})</span><span>{fmt(regPay)}</span></div>
+                            {entry.otHours > 0 && <div className="flex justify-between"><span>OT ({entry.otHours}h × {fmt(payCalcSettings.hourlyRate * payCalcSettings.otRate)})</span><span>{fmt(otPay)}</span></div>}
+                            {entry.tips > 0 && <div className="flex justify-between"><span>Tips</span><span>{fmt(entry.tips)}</span></div>}
+                          </div>
+                        </div>
+                        <div className={`p-3 rounded-lg ${dm('bg-indigo-950/30', 'bg-indigo-50')}`}>
+                          <p className="text-xs text-gray-400 mb-1">Net Pay (Take Home)</p>
+                          <p className="text-lg font-bold text-indigo-600">{fmt(netPay)}</p>
+                          <div className="text-xs text-gray-400 mt-1 space-y-0.5">
+                            {payCalcSettings.preTaxDeductions > 0 && <div className="flex justify-between"><span>Pre-tax deductions</span><span className="text-rose-400">-{fmt(payCalcSettings.preTaxDeductions)}</span></div>}
+                            <div className="flex justify-between"><span>Federal ({payCalcSettings.federalRate}%)</span><span className="text-rose-400">-{fmt(federal)}</span></div>
+                            <div className="flex justify-between"><span>State ({payCalcSettings.stateRate}%)</span><span className="text-rose-400">-{fmt(state)}</span></div>
+                            <div className="flex justify-between"><span>FICA ({payCalcSettings.ficaRate}%)</span><span className="text-rose-400">-{fmt(fica)}</span></div>
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
+                {/* Summary */}
+                <Card darkMode={darkMode} className="bg-gradient-to-br from-indigo-600 to-indigo-700 border-0 text-white">
+                  <h3 className="text-sm font-semibold text-indigo-200 mb-2">Period Summary ({payCalcEntries.length} entries)</h3>
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    <div>
+                      <p className="text-indigo-200 text-xs">Total Hours</p>
+                      <p className="text-xl font-bold">{payCalcEntries.reduce((s, e) => s + e.hours + e.otHours, 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-indigo-200 text-xs">Total Gross</p>
+                      <p className="text-xl font-bold">{fmt(payCalcEntries.reduce((s, e) => {
+                        const r = e.hours * payCalcSettings.hourlyRate;
+                        const o = e.otHours * payCalcSettings.hourlyRate * payCalcSettings.otRate;
+                        return s + r + o + e.tips;
+                      }, 0))}</p>
+                    </div>
+                    <div>
+                      <p className="text-indigo-200 text-xs">Total Net</p>
+                      <p className="text-xl font-bold">{fmt(payCalcEntries.reduce((s, e) => {
+                        const r = e.hours * payCalcSettings.hourlyRate;
+                        const o = e.otHours * payCalcSettings.hourlyRate * payCalcSettings.otRate;
+                        const gross = r + o + e.tips;
+                        const taxable = gross - payCalcSettings.preTaxDeductions;
+                        const tax = taxable * ((payCalcSettings.federalRate + payCalcSettings.stateRate + payCalcSettings.ficaRate) / 100);
+                        return s + gross - payCalcSettings.preTaxDeductions - tax;
+                      }, 0))}</p>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ═══════ FINANCIAL HEALTH TAB ═══════ */}
+        {tab === "health" && (
+          <>
+            <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')}`}>Financial Health Score</h2>
+            {(() => {
+              const scores = [];
+              // 1. Emergency fund (0-20)
+              const monthlyExp = bills.reduce((s, b) => s + b.amount, 0) + debts.reduce((s, d) => s + d.minPayment + d.extraPayment, 0);
+              const emergencyTarget = monthlyExp * 3;
+              const emergencyFund = assets.filter(a => a.category === 'Cash').reduce((s, a) => s + a.balance, 0);
+              const efScore = Math.min(20, Math.round((emergencyFund / Math.max(emergencyTarget, 1)) * 20));
+              scores.push({ label: 'Emergency Fund', score: efScore, max: 20, detail: `${fmt(emergencyFund)} of ${fmt(emergencyTarget)} (3 months)`, color: efScore >= 15 ? 'emerald' : efScore >= 10 ? 'amber' : 'rose' });
+
+              // 2. Debt-to-income (0-20)
+              const dti = monthlyIncome > 0 ? (debts.reduce((s, d) => s + d.minPayment + d.extraPayment, 0)) / monthlyIncome : 1;
+              const dtiScore = dti <= 0.1 ? 20 : dti <= 0.2 ? 16 : dti <= 0.36 ? 12 : dti <= 0.5 ? 6 : 0;
+              scores.push({ label: 'Debt-to-Income', score: dtiScore, max: 20, detail: `${Math.round(dti * 100)}% DTI ratio`, color: dtiScore >= 15 ? 'emerald' : dtiScore >= 10 ? 'amber' : 'rose' });
+
+              // 3. Savings rate (0-20)
+              const savingsRate = monthlyIncome > 0 ? goals.reduce((s, g) => s + g.monthlyContribution, 0) / monthlyIncome : 0;
+              const srScore = savingsRate >= 0.2 ? 20 : savingsRate >= 0.15 ? 16 : savingsRate >= 0.1 ? 12 : savingsRate >= 0.05 ? 6 : 0;
+              scores.push({ label: 'Savings Rate', score: srScore, max: 20, detail: `${Math.round(savingsRate * 100)}% of income`, color: srScore >= 15 ? 'emerald' : srScore >= 10 ? 'amber' : 'rose' });
+
+              // 4. Bill coverage (0-20)
+              const billCoverage = monthlyIncome > 0 ? bills.reduce((s, b) => s + b.amount, 0) / monthlyIncome : 1;
+              const bcScore = billCoverage <= 0.3 ? 20 : billCoverage <= 0.4 ? 16 : billCoverage <= 0.5 ? 12 : billCoverage <= 0.6 ? 6 : 0;
+              scores.push({ label: 'Bills to Income', score: bcScore, max: 20, detail: `${Math.round(billCoverage * 100)}% of income`, color: bcScore >= 15 ? 'emerald' : bcScore >= 10 ? 'amber' : 'rose' });
+
+              // 5. Net worth trend (0-20)
+              const nwPositive = netWorth > 0;
+              const nwScore = nwPositive ? (netWorthHistory.length >= 2 && netWorthHistory[netWorthHistory.length - 1].netWorth > netWorthHistory[netWorthHistory.length - 2].netWorth ? 20 : 14) : 0;
+              scores.push({ label: 'Net Worth', score: nwScore, max: 20, detail: nwPositive ? `${fmt(netWorth)} positive` : 'Negative net worth', color: nwScore >= 15 ? 'emerald' : nwScore >= 10 ? 'amber' : 'rose' });
+
+              const totalScore = scores.reduce((s, sc) => s + sc.score, 0);
+              const grade = totalScore >= 85 ? 'A' : totalScore >= 70 ? 'B' : totalScore >= 55 ? 'C' : totalScore >= 40 ? 'D' : 'F';
+              const gradeColor = totalScore >= 85 ? 'text-emerald-500' : totalScore >= 70 ? 'text-cyan-500' : totalScore >= 55 ? 'text-amber-500' : 'text-rose-500';
+
+              return (
+                <>
+                  {/* Score Overview */}
+                  <Card darkMode={darkMode} className="text-center">
+                    <div className="relative inline-flex items-center justify-center w-36 h-36 mx-auto mb-3">
+                      <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="42" fill="none" stroke={darkMode ? '#1e293b' : '#f1f5f9'} strokeWidth="8" />
+                        <circle cx="50" cy="50" r="42" fill="none" stroke={totalScore >= 85 ? '#10b981' : totalScore >= 70 ? '#06b6d4' : totalScore >= 55 ? '#f59e0b' : '#f43f5e'} strokeWidth="8"
+                          strokeLinecap="round" strokeDasharray={`${totalScore * 2.64} 264`} />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className={`text-4xl font-black ${gradeColor}`}>{grade}</span>
+                        <span className={`text-sm font-medium ${dm('text-gray-600', 'text-gray-400')}`}>{totalScore}/100</span>
+                      </div>
+                    </div>
+                    <p className={`text-sm ${dm('text-gray-600', 'text-gray-400')}`}>
+                      {totalScore >= 85 ? 'Excellent! Your finances are in great shape.' : totalScore >= 70 ? 'Good — a few areas could use attention.' : totalScore >= 55 ? 'Fair — there\'s room for improvement.' : 'Needs work — let\'s build a stronger foundation.'}
+                    </p>
+                  </Card>
+
+                  {/* Score Breakdown */}
+                  <div className="space-y-3">
+                    {scores.map((sc) => {
+                      const colorMap = { emerald: { bg: dm('bg-emerald-950/30', 'bg-emerald-50'), text: 'text-emerald-500', bar: '#10b981' }, amber: { bg: dm('bg-amber-950/30', 'bg-amber-50'), text: 'text-amber-500', bar: '#f59e0b' }, rose: { bg: dm('bg-rose-950/30', 'bg-rose-50'), text: 'text-rose-500', bar: '#f43f5e' } };
+                      const c = colorMap[sc.color];
+                      return (
+                        <Card key={sc.label} darkMode={darkMode}>
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <h4 className={`text-sm font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{sc.label}</h4>
+                              <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>{sc.detail}</p>
+                            </div>
+                            <span className={`text-lg font-black ${c.text}`}>{sc.score}/{sc.max}</span>
+                          </div>
+                          <ProgressBar value={sc.score} max={sc.max} color={c.bar} height={8} />
+                        </Card>
+                      );
+                    })}
+                  </div>
+
+                  {/* Tips */}
+                  <Card darkMode={darkMode}>
+                    <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3 flex items-center gap-2`}><Shield size={16} className="text-indigo-500" /> Improvement Tips</h3>
+                    <div className="space-y-2">
+                      {scores.filter(sc => sc.score < sc.max * 0.75).map(sc => (
+                        <div key={sc.label} className={`p-3 rounded-lg ${dm('bg-slate-700/50', 'bg-gray-50')}`}>
+                          <p className={`text-sm font-medium ${dm('text-gray-200', 'text-gray-800')}`}>{sc.label}</p>
+                          <p className={`text-xs ${dm('text-gray-400', 'text-gray-500')} mt-0.5`}>
+                            {sc.label === 'Emergency Fund' && 'Build up 3-6 months of expenses in a savings account.'}
+                            {sc.label === 'Debt-to-Income' && 'Focus on paying down debt — consider the avalanche method.'}
+                            {sc.label === 'Savings Rate' && 'Aim to save at least 20% of your income each month.'}
+                            {sc.label === 'Bills to Income' && 'Look for ways to reduce fixed costs — renegotiate or switch providers.'}
+                            {sc.label === 'Net Worth' && 'Keep tracking and growing assets while reducing liabilities.'}
+                          </p>
+                        </div>
+                      ))}
+                      {scores.every(sc => sc.score >= sc.max * 0.75) && (
+                        <p className={`text-sm text-center py-4 ${dm('text-emerald-400', 'text-emerald-600')} font-medium`}>You're doing great across the board! Keep it up.</p>
+                      )}
+                    </div>
+                  </Card>
+                </>
+              );
+            })()}
+          </>
+        )}
+
+        {/* ═══════ YEAR TAB ═══════ */}
+        {tab === "yearly" && (
+          <>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900">{viewYear} at a Glance</h2>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setViewYear(viewYear - 1)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition"><ChevronLeft size={18} /></button>
+                <span className="text-sm font-semibold text-gray-700 px-2">{viewYear}</span>
+                <button onClick={() => setViewYear(viewYear + 1)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition"><ChevronRight size={18} /></button>
+              </div>
+            </div>
+
+            {/* Annual summary */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard darkMode={darkMode} icon={DollarSign} label="Annual Income" value={fmt(yearData.reduce((s, m) => s + m.income, 0))} sub={`${viewYear}`} color="green" />
+              <StatCard darkMode={darkMode} icon={Calendar} label="Annual Expenses" value={fmt(yearData.reduce((s, m) => s + m.expenses, 0))} color="amber" />
+              <StatCard darkMode={darkMode} icon={PiggyBank} label="Annual Savings" value={fmt(yearData.reduce((s, m) => s + m.savings, 0))} color="cyan" />
+              <StatCard darkMode={darkMode} icon={Wallet} label="Annual Net" value={fmt(yearData.reduce((s, m) => s + m.net, 0))} color={yearData.reduce((s, m) => s + m.net, 0) >= 0 ? "indigo" : "rose"} />
+            </div>
+
+            {/* Monthly comparison chart */}
+            <Card darkMode={darkMode}>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Income vs. Expenses by Month</h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={yearData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
+                  <XAxis dataKey="month" fontSize={12} tickLine={false} />
+                  <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`} fontSize={11} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(v) => fmt(v)} />
+                  <Legend />
+                  <Bar dataKey="income" name="Income" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="expenses" name="Expenses" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Card>
+
+            {/* Net cash flow line */}
+            <Card darkMode={darkMode}>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Net Cash Flow</h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={yearData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="netGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15} />
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="month" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`} fontSize={11} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(v) => fmt(v)} />
+                  <Area type="monotone" dataKey="net" name="Net" stroke="#6366f1" strokeWidth={2.5} fill="url(#netGrad)" dot={{ r: 4, fill: "#6366f1" }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </Card>
+
+            {/* Month-by-month table */}
+            <Card darkMode={darkMode}>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Monthly Breakdown</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-2 text-xs font-medium text-gray-400 uppercase">Month</th>
+                      <th className="text-right py-2 px-2 text-xs font-medium text-gray-400 uppercase">Income</th>
+                      <th className="text-right py-2 px-2 text-xs font-medium text-gray-400 uppercase">Expenses</th>
+                      <th className="text-right py-2 px-2 text-xs font-medium text-gray-400 uppercase">Savings</th>
+                      <th className="text-right py-2 px-2 text-xs font-medium text-gray-400 uppercase">Net</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {yearData.map((m) => {
+                      const isCurrent = m.monthIdx === viewMonth && viewYear === today.getFullYear();
+                      return (
+                        <tr key={m.month} className={`border-b border-gray-50 ${isCurrent ? "bg-indigo-50/50" : "hover:bg-gray-50"} cursor-pointer transition`}
+                          onClick={() => { setViewMonth(m.monthIdx); setTab("dashboard"); }}>
+                          <td className={`py-2.5 px-2 font-medium ${isCurrent ? "text-indigo-700" : "text-gray-700"}`}>
+                            {m.month}{isCurrent ? " ●" : ""}
+                          </td>
+                          <td className="py-2.5 px-2 text-right text-emerald-600 font-medium">{fmt(m.income)}</td>
+                          <td className="py-2.5 px-2 text-right text-rose-500">{fmt(m.expenses)}</td>
+                          <td className="py-2.5 px-2 text-right text-cyan-600">{fmt(m.savings)}</td>
+                          <td className={`py-2.5 px-2 text-right font-bold ${m.net >= 0 ? "text-indigo-600" : "text-rose-600"}`}>{fmt(m.net)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-200">
+                      <td className="py-2.5 px-2 font-bold text-gray-800">Total</td>
+                      <td className="py-2.5 px-2 text-right font-bold text-emerald-600">{fmt(yearData.reduce((s, m) => s + m.income, 0))}</td>
+                      <td className="py-2.5 px-2 text-right font-bold text-rose-500">{fmt(yearData.reduce((s, m) => s + m.expenses, 0))}</td>
+                      <td className="py-2.5 px-2 text-right font-bold text-cyan-600">{fmt(yearData.reduce((s, m) => s + m.savings, 0))}</td>
+                      <td className={`py-2.5 px-2 text-right font-bold ${yearData.reduce((s, m) => s + m.net, 0) >= 0 ? "text-indigo-600" : "text-rose-600"}`}>{fmt(yearData.reduce((s, m) => s + m.net, 0))}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <p className="text-xs text-gray-400 mt-3">Click any month to jump to it</p>
+            </Card>
+          </>
+        )}
+      </main>
+
+      {/* ═══════ FLOATING QUICK-ADD EXPENSE BUTTON ═══════ */}
+      {!quickAdd && (
+        <button onClick={() => setQuickAdd({ description: "", amount: "", category: "Other", date: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(Math.min(today.getDate(), new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0")}` })}
+          className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg shadow-indigo-200 hover:bg-indigo-700 hover:shadow-xl transition-all flex items-center justify-center group"
+          title="Quick add expense">
+          <Plus size={24} className="group-hover:rotate-90 transition-transform" />
+        </button>
+      )}
+
+      {quickAdd && (
+        <div className="fixed bottom-6 right-6 z-50 w-80 bg-white rounded-2xl shadow-2xl border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5"><Zap size={14} className="text-indigo-500" /> Quick Add Expense</h3>
+            <button onClick={() => setQuickAdd(null)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+          </div>
+          <div className="space-y-2.5">
+            <input placeholder="What did you spend on?" value={quickAdd.description} onChange={(e) => setQuickAdd({ ...quickAdd, description: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" autoFocus />
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+              <input type="number" placeholder="Amount" value={quickAdd.amount} onChange={(e) => setQuickAdd({ ...quickAdd, amount: e.target.value })}
+                className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <select value={quickAdd.category} onChange={(e) => {
+              const cat = e.target.value;
+              setQuickAdd({ ...quickAdd, category: cat, goalId: cat === "Savings" ? (goals[0]?.id || "") : "", description: cat === "Savings" && !quickAdd.description ? (goals[0]?.name || "") + " contribution" : quickAdd.description });
+            }}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              {EXPENSE_CATEGORIES.filter((c) => c !== "Debt Payment").map((c) => <option key={c}>{c}</option>)}
+            </select>
+            {quickAdd.category === "Savings" && (
+              <select value={quickAdd.goalId || ""} onChange={(e) => {
+                const goal = goals.find((g) => g.id === e.target.value);
+                setQuickAdd({ ...quickAdd, goalId: e.target.value, description: goal ? `${goal.name} contribution` : quickAdd.description });
+              }}
+                className="w-full px-3 py-1.5 border border-cyan-200 rounded-lg text-sm bg-cyan-50 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                <option value="">Select savings goal...</option>
+                {goals.map((g) => <option key={g.id} value={g.id}>{g.name} ({fmt(g.saved)} / {fmt(g.target)})</option>)}
+              </select>
+            )}
+            <input type="date" value={quickAdd.date} onChange={(e) => setQuickAdd({ ...quickAdd, date: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <button onClick={() => {
+              if (quickAdd.description && quickAdd.amount && (quickAdd.category !== "Savings" || quickAdd.goalId)) {
+                addExpense({ ...quickAdd, amount: +quickAdd.amount });
+                setQuickAdd(null);
+              }
+            }} className="w-full bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1.5">
+              <Check size={14} /> Add Expense
+            </button>
+          </div>
+        </div>
+      )}
+
+      <footer className="text-center py-6 text-xs text-gray-400">
+        Paycheck Planner · Your budget, your paychecks
+      </footer>
+    </div>
+  );
+}
