@@ -41,6 +41,11 @@ const THEMES = {
   cyberpunk: { name: "Cyberpunk", emoji: "🌆", bg: "bg-gray-950", cardClass: "border border-pink-500/30 bg-gray-950/90 shadow-[0_0_15px_rgba(236,72,153,0.1)]", headerClass: "bg-gray-950/95 border-pink-500/30", textClass: "text-pink-400", accentColor: "#ec4899", fontFamily: "'Orbitron', 'Courier New', monospace", borderStyle: "border-pink-500/20", specialEffect: "cyberpunk" },
   minimalist: { name: "Minimalist", emoji: "◻️", bg: "bg-white", cardClass: "border border-gray-100 bg-white shadow-sm", headerClass: "bg-white border-gray-100", textClass: "text-gray-800", accentColor: "#1f2937", fontFamily: "'Inter', system-ui, sans-serif", borderStyle: "border-gray-100", specialEffect: "minimalist" },
   academia: { name: "Dark Academia", emoji: "📚", bg: "bg-stone-900", cardClass: "border border-amber-800/30 bg-stone-900/90 shadow-lg", headerClass: "bg-stone-900/95 border-amber-800/30", textClass: "text-amber-100", accentColor: "#d97706", fontFamily: "'Libre Baskerville', 'Georgia', serif", borderStyle: "border-amber-800/25", specialEffect: "academia" },
+  retroterminal: { name: "Retro Terminal", emoji: "🖥️", bg: "bg-black", cardClass: "border border-amber-500/30 bg-black/80 shadow-[0_0_15px_rgba(245,158,11,0.08)]", headerClass: "bg-black/95 border-amber-500/30", textClass: "text-amber-400", accentColor: "#f59e0b", fontFamily: "'VT323', 'Courier New', monospace", borderStyle: "border-amber-500/20", specialEffect: "retroterminal" },
+  win95: { name: "Windows 95", emoji: "🪟", bg: "bg-teal-600", cardClass: "border-2 border-t-white border-l-white border-b-gray-800 border-r-gray-800 bg-gray-300 shadow-none rounded-none", headerClass: "bg-gradient-to-r from-blue-800 to-blue-600 border-none", textClass: "text-black", accentColor: "#1e3a5f", fontFamily: "'MS Sans Serif', 'Segoe UI', Tahoma, sans-serif", borderStyle: "border-gray-500", specialEffect: "win95" },
+  gameboy: { name: "Game Boy", emoji: "🎮", bg: "bg-lime-100", cardClass: "border-2 border-green-900/40 bg-lime-200/80 shadow-none rounded-none", headerClass: "bg-green-900/90 border-green-900/50", textClass: "text-green-900", accentColor: "#14532d", fontFamily: "'Press Start 2P', 'Courier New', monospace", borderStyle: "border-green-900/30", specialEffect: "gameboy" },
+  blueprint: { name: "Blueprint", emoji: "📐", bg: "bg-blue-950", cardClass: "border border-blue-300/25 bg-blue-950/80 shadow-none", headerClass: "bg-blue-950/95 border-blue-300/25", textClass: "text-blue-100", accentColor: "#60a5fa", fontFamily: "'Courier Prime', 'Courier New', monospace", borderStyle: "border-blue-300/20", specialEffect: "blueprint" },
+  space: { name: "Space", emoji: "🚀", bg: "bg-gray-950", cardClass: "border border-violet-500/20 bg-gray-950/80 shadow-[0_0_20px_rgba(139,92,246,0.06)]", headerClass: "bg-gray-950/95 border-violet-500/20", textClass: "text-violet-200", accentColor: "#8b5cf6", fontFamily: "'Exo 2', 'Segoe UI', sans-serif", borderStyle: "border-violet-500/15", specialEffect: "space" },
 };
 
 const TABS = [
@@ -1706,6 +1711,212 @@ export default function PaycheckPlanner() {
         }
         [class*="bg-gray-"], [class*="bg-slate-"], [class*="bg-white"] {
           background: rgba(28,25,23,0.7) !important;
+        }
+      `}</style>}
+      {activeTheme === 'retroterminal' && <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+        *, ::before, ::after { border-color: rgba(245,158,11,0.15) !important; }
+        .min-h-screen {
+          background: #000 !important;
+          background-image:
+            repeating-linear-gradient(0deg, rgba(245,158,11,0.03) 0px, rgba(245,158,11,0.03) 1px, transparent 1px, transparent 3px),
+            radial-gradient(ellipse at 50% 30%, rgba(80,50,0,0.35) 0%, transparent 70%) !important;
+        }
+        .min-h-screen::after {
+          content: '';
+          position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+          background: repeating-linear-gradient(0deg, rgba(0,0,0,0.15) 0px, rgba(0,0,0,0.15) 1px, transparent 1px, transparent 2px);
+          pointer-events: none; z-index: 9999;
+        }
+        h1, h2, h3, h4, h5, h6, p, span, label, a, button, th, td, li, div {
+          color: #f59e0b !important;
+          font-family: 'VT323', 'Courier New', monospace !important;
+          text-shadow: 0 0 8px rgba(245,158,11,0.4), 0 0 2px rgba(245,158,11,0.2) !important;
+          font-size: 1.05em !important;
+        }
+        input, select, textarea {
+          background: rgba(20,10,0,0.8) !important;
+          color: #f59e0b !important;
+          border-color: rgba(245,158,11,0.3) !important;
+          font-family: 'VT323', monospace !important;
+          text-shadow: 0 0 5px rgba(245,158,11,0.3) !important;
+          caret-color: #f59e0b !important;
+        }
+        input::placeholder { color: rgba(245,158,11,0.4) !important; }
+        svg { color: #f59e0b !important; filter: drop-shadow(0 0 3px rgba(245,158,11,0.3)); }
+        .rounded-2xl, .rounded-xl, .rounded-lg { border-radius: 0 !important; }
+        [class*="bg-gray-"], [class*="bg-slate-"], [class*="bg-white"],
+        [class*="bg-blue-50"], [class*="bg-purple-50"], [class*="bg-emerald-50"],
+        [class*="bg-amber-50"], [class*="bg-rose-50"], [class*="bg-cyan-50"],
+        [class*="bg-green-50"], [class*="bg-indigo-50"] {
+          background: rgba(20,10,0,0.6) !important;
+        }
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: rgba(180,100,0,0.3) !important;
+          border: 1px solid rgba(245,158,11,0.4) !important;
+        }
+      `}</style>}
+      {activeTheme === 'win95' && <style>{`
+        .min-h-screen {
+          background: #008080 !important;
+        }
+        *, ::before, ::after { border-color: #808080 !important; }
+        h1, h2, h3, h4, h5, h6, p, span, label, a, button, th, td, li, div {
+          color: #000 !important;
+          font-family: 'Segoe UI', Tahoma, 'MS Sans Serif', sans-serif !important;
+          text-shadow: none !important;
+        }
+        [class*="bg-gradient-to-r"][class*="from-blue-800"] h1,
+        [class*="bg-gradient-to-r"][class*="from-blue-800"] h2,
+        [class*="bg-gradient-to-r"][class*="from-blue-800"] p,
+        [class*="bg-gradient-to-r"][class*="from-blue-800"] span,
+        header h1, header p { color: #fff !important; }
+        input, select, textarea {
+          background: #fff !important;
+          color: #000 !important;
+          border: 2px inset #bbb !important;
+          border-radius: 0 !important;
+          font-family: 'Segoe UI', Tahoma, sans-serif !important;
+        }
+        button {
+          border-radius: 0 !important;
+        }
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: #c0c0c0 !important;
+          color: #000 !important;
+          border: 2px outset #fff !important;
+          border-radius: 0 !important;
+        }
+        [class*="bg-indigo-600"]:active, [class*="bg-indigo-700"]:active {
+          border: 2px inset #808080 !important;
+        }
+        .rounded-2xl, .rounded-xl, .rounded-lg, .rounded-full { border-radius: 0 !important; }
+        [class*="bg-gray-"], [class*="bg-slate-"], [class*="bg-white"] {
+          background: #c0c0c0 !important;
+        }
+        svg { color: #000 !important; filter: none !important; }
+      `}</style>}
+      {activeTheme === 'gameboy' && <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        .min-h-screen {
+          background: #9bbc0f !important;
+        }
+        *, ::before, ::after { border-color: rgba(20,83,45,0.3) !important; }
+        h1, h2, h3, h4, h5, h6, p, span, label, a, button, th, td, li, div {
+          color: #0f380f !important;
+          font-family: 'Press Start 2P', 'Courier New', monospace !important;
+          font-size: 0.7em !important;
+          line-height: 1.8 !important;
+          text-shadow: none !important;
+        }
+        h1, h2 { font-size: 0.85em !important; }
+        h3 { font-size: 0.75em !important; }
+        input, select, textarea {
+          background: #8bac0f !important;
+          color: #0f380f !important;
+          border: 2px solid #306230 !important;
+          border-radius: 0 !important;
+          font-family: 'Press Start 2P', monospace !important;
+          font-size: 0.65em !important;
+        }
+        input::placeholder { color: #306230 !important; }
+        svg { color: #0f380f !important; filter: none !important; }
+        .rounded-2xl, .rounded-xl, .rounded-lg { border-radius: 0 !important; }
+        [class*="bg-gray-"], [class*="bg-slate-"], [class*="bg-white"],
+        [class*="bg-blue-50"], [class*="bg-purple-50"], [class*="bg-emerald-50"],
+        [class*="bg-amber-50"], [class*="bg-rose-50"], [class*="bg-cyan-50"],
+        [class*="bg-green-50"], [class*="bg-indigo-50"] {
+          background: #8bac0f !important;
+        }
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: #306230 !important;
+          border-radius: 0 !important;
+        }
+      `}</style>}
+      {activeTheme === 'blueprint' && <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap');
+        *, ::before, ::after { border-color: rgba(147,197,253,0.2) !important; }
+        .min-h-screen {
+          background: #0c1e3a !important;
+          background-image:
+            linear-gradient(rgba(96,165,250,0.06) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(96,165,250,0.06) 1px, transparent 1px) !important;
+          background-size: 20px 20px !important;
+        }
+        h1, h2, h3, h4, h5, h6, p, span, label, a, button, th, td, li, div {
+          color: #bfdbfe !important;
+          font-family: 'Courier Prime', 'Courier New', monospace !important;
+          text-transform: uppercase !important;
+          letter-spacing: 0.5px !important;
+        }
+        h1, h2, h3 {
+          color: #93c5fd !important;
+          text-shadow: 0 0 10px rgba(96,165,250,0.3) !important;
+        }
+        input, select, textarea {
+          background: rgba(12,30,58,0.9) !important;
+          color: #bfdbfe !important;
+          border: 1px solid rgba(96,165,250,0.3) !important;
+          font-family: 'Courier Prime', monospace !important;
+          border-radius: 0 !important;
+        }
+        input::placeholder { color: rgba(191,219,254,0.3) !important; }
+        svg { color: #60a5fa !important; filter: drop-shadow(0 0 2px rgba(96,165,250,0.3)); }
+        .rounded-2xl, .rounded-xl, .rounded-lg { border-radius: 0 !important; }
+        [class*="bg-gray-"], [class*="bg-slate-"], [class*="bg-white"],
+        [class*="bg-blue-50"], [class*="bg-purple-50"], [class*="bg-emerald-50"],
+        [class*="bg-amber-50"], [class*="bg-rose-50"], [class*="bg-cyan-50"],
+        [class*="bg-green-50"], [class*="bg-indigo-50"] {
+          background: rgba(12,30,58,0.7) !important;
+        }
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: rgba(37,99,235,0.4) !important;
+          border: 1px solid rgba(96,165,250,0.4) !important;
+          border-radius: 0 !important;
+        }
+      `}</style>}
+      {activeTheme === 'space' && <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;600;700&display=swap');
+        *, ::before, ::after { border-color: rgba(139,92,246,0.15) !important; }
+        .min-h-screen {
+          background: #030712 !important;
+          background-image:
+            radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.5) 0%, transparent 100%),
+            radial-gradient(1px 1px at 40% 70%, rgba(255,255,255,0.4) 0%, transparent 100%),
+            radial-gradient(1px 1px at 60% 20%, rgba(255,255,255,0.6) 0%, transparent 100%),
+            radial-gradient(1px 1px at 80% 50%, rgba(255,255,255,0.3) 0%, transparent 100%),
+            radial-gradient(1.5px 1.5px at 10% 80%, rgba(139,92,246,0.7) 0%, transparent 100%),
+            radial-gradient(1.5px 1.5px at 70% 90%, rgba(236,72,153,0.5) 0%, transparent 100%),
+            radial-gradient(1px 1px at 90% 10%, rgba(255,255,255,0.5) 0%, transparent 100%),
+            radial-gradient(1px 1px at 50% 50%, rgba(255,255,255,0.3) 0%, transparent 100%),
+            radial-gradient(ellipse at 30% 80%, rgba(139,92,246,0.08) 0%, transparent 50%),
+            radial-gradient(ellipse at 70% 20%, rgba(59,130,246,0.06) 0%, transparent 50%) !important;
+        }
+        h1, h2, h3, h4, h5, h6, p, span, label, a, button, th, td, li, div {
+          color: #ddd6fe !important;
+          font-family: 'Exo 2', 'Segoe UI', sans-serif !important;
+        }
+        h1, h2, h3 {
+          color: #c4b5fd !important;
+          text-shadow: 0 0 15px rgba(139,92,246,0.3) !important;
+          letter-spacing: 1px !important;
+        }
+        input, select, textarea {
+          background: rgba(3,7,18,0.9) !important;
+          color: #ddd6fe !important;
+          border-color: rgba(139,92,246,0.3) !important;
+          font-family: 'Exo 2', sans-serif !important;
+        }
+        input::placeholder { color: rgba(221,214,254,0.3) !important; }
+        svg { color: #8b5cf6 !important; filter: drop-shadow(0 0 3px rgba(139,92,246,0.3)); }
+        [class*="bg-gray-"], [class*="bg-slate-"], [class*="bg-white"],
+        [class*="bg-blue-50"], [class*="bg-purple-50"], [class*="bg-emerald-50"],
+        [class*="bg-amber-50"], [class*="bg-rose-50"], [class*="bg-cyan-50"],
+        [class*="bg-green-50"], [class*="bg-indigo-50"] {
+          background: rgba(3,7,18,0.7) !important;
+        }
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: linear-gradient(135deg, #7c3aed, #4f46e5) !important;
         }
       `}</style>}
       {/* Header */}
