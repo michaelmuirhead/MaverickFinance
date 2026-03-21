@@ -1805,19 +1805,20 @@ export default function PaycheckPlanner() {
         h1, h2, h3, h4, h5, h6, p, span, label, a, button, th, td, li, div {
           color: #0f380f !important;
           font-family: 'Press Start 2P', 'Courier New', monospace !important;
-          font-size: 0.7em !important;
-          line-height: 1.8 !important;
+          line-height: 2 !important;
           text-shadow: none !important;
         }
-        h1, h2 { font-size: 0.85em !important; }
-        h3 { font-size: 0.75em !important; }
+        h1 { font-size: 14px !important; }
+        h2 { font-size: 12px !important; }
+        h3 { font-size: 11px !important; }
+        p, span, label, a, button, th, td, li, div { font-size: 10px !important; }
         input, select, textarea {
           background: #8bac0f !important;
           color: #0f380f !important;
           border: 2px solid #306230 !important;
           border-radius: 0 !important;
           font-family: 'Press Start 2P', monospace !important;
-          font-size: 0.65em !important;
+          font-size: 10px !important;
         }
         input::placeholder { color: #306230 !important; }
         svg { color: #0f380f !important; filter: none !important; }
