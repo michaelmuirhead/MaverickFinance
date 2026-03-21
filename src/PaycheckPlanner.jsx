@@ -20,9 +20,9 @@ const getFb = async () => {
   if (_fb.ready) return _fb;
   if (!firebaseEnabled) return null;
   try {
-    const app = await import(/* webpackIgnore: true */ "firebase/app");
-    const auth = await import(/* webpackIgnore: true */ "firebase/auth");
-    const fs = await import(/* webpackIgnore: true */ "firebase/firestore");
+    const app = await import("firebase/app");
+    const auth = await import("firebase/auth");
+    const fs = await import("firebase/firestore");
     _fb.app = app.initializeApp(FIREBASE_CONFIG);
     _fb.auth = auth.getAuth(_fb.app);
     _fb.db = fs.getFirestore(_fb.app);
