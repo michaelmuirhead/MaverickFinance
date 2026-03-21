@@ -35,8 +35,8 @@ const THEMES = {
   lego: { name: "LEGO", emoji: "🧱", bg: "bg-yellow-300", cardClass: "border-[3px] border-black/20 bg-red-500 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] rounded-lg", headerClass: "bg-yellow-400 border-b-[3px] border-black/20", textClass: "text-black", accentColor: "#dc2626", fontFamily: "'Fredoka', 'Arial Black', sans-serif", borderStyle: "border-black/20", specialEffect: "lego" },
   comic: { name: "Comic Book", emoji: "💥", bg: "bg-sky-300", cardClass: "border-[3px] border-black bg-yellow-50 shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] rounded-none", headerClass: "bg-red-600 border-black border-b-[3px]", textClass: "text-black", accentColor: "#dc2626", fontFamily: "'Bangers', 'Comic Sans MS', cursive", borderStyle: "border-black border-2", specialEffect: "comic" },
   newspaper: { name: "Typewriter", emoji: "📰", bg: "bg-amber-50", cardClass: "border border-amber-900/30 bg-amber-50/70 shadow-none rounded-none", headerClass: "bg-amber-100/90 border-amber-900/30", textClass: "text-amber-950", accentColor: "#5c3a1e", fontFamily: "'Special Elite', 'Courier New', monospace", borderStyle: "border-amber-900/25", specialEffect: "newspaper" },
-  papyrus: { name: "Papyrus", emoji: "🏺", bg: "bg-amber-100", cardClass: "border border-amber-700/30 bg-gradient-to-b from-amber-100 to-amber-200/60 shadow-inner", headerClass: "bg-amber-200/80 border-amber-700/30", textClass: "text-amber-900", accentColor: "#b45309", fontFamily: "'Palatino Linotype', 'Book Antiqua', serif", borderStyle: "border-amber-700/30", specialEffect: "papyrus" },
-  lionheart: { name: "Lionheart", emoji: "🦁", bg: "bg-red-950", cardClass: "border border-yellow-600/40 bg-red-950/80 shadow-lg shadow-yellow-900/10", headerClass: "bg-red-950/90 border-yellow-600/40", textClass: "text-yellow-100", accentColor: "#ca8a04", fontFamily: "'Palatino Linotype', serif", borderStyle: "border-yellow-600/30", specialEffect: "lionheart" },
+  papyrus: { name: "Papyrus", emoji: "𓂀", bg: "bg-amber-100", cardClass: "border border-amber-800/30 bg-amber-100/80 shadow-inner rounded-none", headerClass: "bg-amber-900/90 border-amber-800/40", textClass: "text-amber-900", accentColor: "#92400e", fontFamily: "'Papyrus', 'Segoe Script', fantasy", borderStyle: "border-amber-800/30", specialEffect: "papyrus" },
+  lionheart: { name: "Lionheart", emoji: "🦁", bg: "bg-red-950", cardClass: "border-2 border-yellow-600/40 bg-red-950/80 shadow-lg shadow-yellow-900/10", headerClass: "bg-red-950/90 border-yellow-600/50", textClass: "text-yellow-100", accentColor: "#ca8a04", fontFamily: "'MedievalSharp', 'Palatino Linotype', serif", borderStyle: "border-yellow-600/30", specialEffect: "lionheart" },
   fifties: { name: "The 1950s", emoji: "🎸", bg: "bg-pink-50", cardClass: "border-2 border-pink-300 bg-white rounded-2xl shadow-md", headerClass: "bg-gradient-to-r from-pink-400 via-sky-300 to-mint-300 border-pink-300", textClass: "text-pink-800", accentColor: "#ec4899", fontFamily: "'Georgia', serif", borderStyle: "border-pink-300", specialEffect: "fifties" },
   cyberpunk: { name: "Cyberpunk", emoji: "🌆", bg: "bg-gray-950", cardClass: "border border-pink-500/30 bg-gray-950/90 shadow-[0_0_15px_rgba(236,72,153,0.1)]", headerClass: "bg-gray-950/95 border-pink-500/30", textClass: "text-pink-400", accentColor: "#ec4899", fontFamily: "'Orbitron', 'Courier New', monospace", borderStyle: "border-pink-500/20", specialEffect: "cyberpunk" },
   minimalist: { name: "Minimalist", emoji: "◻️", bg: "bg-white", cardClass: "border border-gray-100 bg-white shadow-sm", headerClass: "bg-white border-gray-100", textClass: "text-gray-800", accentColor: "#1f2937", fontFamily: "'Inter', system-ui, sans-serif", borderStyle: "border-gray-100", specialEffect: "minimalist" },
@@ -1624,11 +1624,105 @@ export default function PaycheckPlanner() {
         }
       `}</style>}
       {activeTheme === 'papyrus' && <style>{`
-        .min-h-screen { background: linear-gradient(180deg, #fde68a 0%, #d97706 5%, #fbbf24 10%, #fde68a 50%, #f59e0b 90%, #d97706 100%) !important; background-size: 100% 200% !important; }
+        @import url('https://fonts.googleapis.com/css2?family=Amatic+SC:wght@400;700&family=IM+Fell+English:ital@0;1&display=swap');
+        .min-h-screen {
+          background: #d4a56a !important;
+          background-image:
+            url("data:image/svg+xml,%3Csvg width='300' height='300' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.4' numOctaves='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.12'/%3E%3C/svg%3E") !important;
+        }
+        *, ::before, ::after { border-color: rgba(120,53,15,0.25) !important; }
+        h1, h2, h3, h4, h5, h6 {
+          font-family: 'Amatic SC', 'Papyrus', fantasy !important;
+          color: #451a03 !important;
+          font-weight: 700 !important;
+          font-size: 1.4em !important;
+          letter-spacing: 2px !important;
+          text-transform: uppercase !important;
+          text-shadow: none !important;
+        }
+        h1 { font-size: 1.8em !important; }
+        p, span, label, a, button, th, td, li, div {
+          font-family: 'IM Fell English', 'Palatino Linotype', serif !important;
+          color: #3b1a04 !important;
+          text-shadow: none !important;
+        }
+        header h1, header p, header span { color: #fef3c7 !important; }
+        input, select, textarea {
+          background: rgba(212,165,106,0.5) !important;
+          color: #3b1a04 !important;
+          border: 1px solid rgba(120,53,15,0.3) !important;
+          border-radius: 0 !important;
+          font-family: 'IM Fell English', serif !important;
+        }
+        input::placeholder { color: rgba(59,26,4,0.4) !important; font-style: italic !important; }
+        svg { color: #78350f !important; filter: none !important; }
+        .rounded-2xl, .rounded-xl, .rounded-lg { border-radius: 0 !important; }
+        [class*="bg-gray-"], [class*="bg-slate-"], [class*="bg-white"],
+        [class*="bg-blue-50"], [class*="bg-purple-50"], [class*="bg-emerald-50"],
+        [class*="bg-amber-50"], [class*="bg-rose-50"], [class*="bg-cyan-50"],
+        [class*="bg-green-50"], [class*="bg-indigo-50"] {
+          background: rgba(190,140,80,0.35) !important;
+        }
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: #78350f !important;
+          border-radius: 0 !important;
+        }
+        /* Decorative border on cards */
+        [class*="shadow-inner"] {
+          border: 2px solid rgba(120,53,15,0.2) !important;
+          box-shadow: inset 0 0 20px rgba(120,53,15,0.08) !important;
+        }
       `}</style>}
       {activeTheme === 'lionheart' && <style>{`
-        .min-h-screen { background: linear-gradient(180deg, #450a0a 0%, #1c1917 50%, #450a0a 100%) !important; }
-        input, select, textarea { background: rgba(69,10,10,0.8) !important; color: #fef3c7 !important; border-color: rgba(202,138,4,0.3) !important; }
+        @import url('https://fonts.googleapis.com/css2?family=MedievalSharp&family=Cinzel:wght@400;600;700&display=swap');
+        .min-h-screen {
+          background: #1a0a0a !important;
+          background-image:
+            url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 5 L35 15 L30 12 L25 15 Z' fill='rgba(202,138,4,0.04)'/%3E%3Cpath d='M5 30 L15 35 L12 30 L15 25 Z' fill='rgba(202,138,4,0.03)'/%3E%3Cpath d='M55 30 L45 25 L48 30 L45 35 Z' fill='rgba(202,138,4,0.03)'/%3E%3Cpath d='M30 55 L25 45 L30 48 L35 45 Z' fill='rgba(202,138,4,0.04)'/%3E%3C/svg%3E"),
+            linear-gradient(180deg, #2d0a0a 0%, #1a0505 40%, #0d0505 100%) !important;
+          background-size: 60px 60px, 100% 100% !important;
+        }
+        *, ::before, ::after { border-color: rgba(202,138,4,0.2) !important; }
+        h1, h2, h3, h4, h5, h6 {
+          font-family: 'Cinzel', 'Palatino Linotype', serif !important;
+          color: #fbbf24 !important;
+          font-weight: 700 !important;
+          text-transform: uppercase !important;
+          letter-spacing: 3px !important;
+          text-shadow: 0 2px 4px rgba(0,0,0,0.5), 0 0 15px rgba(202,138,4,0.15) !important;
+        }
+        p, span, label, a, button, th, td, li, div {
+          font-family: 'MedievalSharp', 'Palatino Linotype', serif !important;
+          color: #fde68a !important;
+          text-shadow: none !important;
+        }
+        input, select, textarea {
+          background: rgba(26,10,10,0.9) !important;
+          color: #fde68a !important;
+          border: 1px solid rgba(202,138,4,0.3) !important;
+          font-family: 'MedievalSharp', serif !important;
+        }
+        input::placeholder { color: rgba(253,230,138,0.3) !important; }
+        svg { color: #ca8a04 !important; filter: drop-shadow(0 0 2px rgba(202,138,4,0.2)); }
+        [class*="bg-gray-"], [class*="bg-slate-"], [class*="bg-white"],
+        [class*="bg-blue-50"], [class*="bg-purple-50"], [class*="bg-emerald-50"],
+        [class*="bg-amber-50"], [class*="bg-rose-50"], [class*="bg-cyan-50"],
+        [class*="bg-green-50"], [class*="bg-indigo-50"] {
+          background: rgba(26,10,10,0.7) !important;
+        }
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: linear-gradient(135deg, #92400e, #78350f) !important;
+          border: 1px solid rgba(202,138,4,0.4) !important;
+        }
+        /* Gold decorative borders on cards */
+        [class*="rounded-2xl"] {
+          border: 2px solid rgba(202,138,4,0.25) !important;
+          box-shadow: 0 0 10px rgba(202,138,4,0.05), inset 0 0 15px rgba(0,0,0,0.2) !important;
+        }
+        /* Tab active = gold underline */
+        [class*="border-b-2"][class*="border-indigo-600"] {
+          border-color: #ca8a04 !important;
+        }
       `}</style>}
       {activeTheme === 'fifties' && <style>{`
         .min-h-screen { background: linear-gradient(135deg, #fce7f3 0%, #e0f2fe 50%, #d1fae5 100%) !important; }
