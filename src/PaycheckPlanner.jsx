@@ -46,6 +46,7 @@ const THEMES = {
   gameboy: { name: "Game Boy", emoji: "🎮", bg: "bg-lime-100", cardClass: "border-2 border-green-900/40 bg-lime-200/80 shadow-none rounded-none", headerClass: "bg-green-900/90 border-green-900/50", textClass: "text-green-900", accentColor: "#14532d", fontFamily: "'Press Start 2P', 'Courier New', monospace", borderStyle: "border-green-900/30", specialEffect: "gameboy" },
   blueprint: { name: "Blueprint", emoji: "📐", bg: "bg-blue-950", cardClass: "border border-blue-300/25 bg-blue-950/80 shadow-none", headerClass: "bg-blue-950/95 border-blue-300/25", textClass: "text-blue-100", accentColor: "#60a5fa", fontFamily: "'Courier Prime', 'Courier New', monospace", borderStyle: "border-blue-300/20", specialEffect: "blueprint" },
   space: { name: "Space", emoji: "🚀", bg: "bg-gray-950", cardClass: "border border-violet-500/20 bg-gray-950/80 shadow-[0_0_20px_rgba(139,92,246,0.06)]", headerClass: "bg-gray-950/95 border-violet-500/20", textClass: "text-violet-200", accentColor: "#8b5cf6", fontFamily: "'Exo 2', 'Segoe UI', sans-serif", borderStyle: "border-violet-500/15", specialEffect: "space" },
+  consul: { name: "Consul", emoji: "🏛️", bg: "bg-stone-100", cardClass: "border border-stone-400/40 bg-stone-100/90 shadow-md rounded-none", headerClass: "bg-red-900/95 border-stone-400/40", textClass: "text-stone-800", accentColor: "#7f1d1d", fontFamily: "'Cinzel', 'Trajan Pro', serif", borderStyle: "border-stone-400/30", specialEffect: "consul" },
 };
 
 const TABS = [
@@ -2100,6 +2101,78 @@ export default function PaycheckPlanner() {
         }
         [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
           background: linear-gradient(135deg, #7c3aed, #4f46e5) !important;
+        }
+      `}</style>}
+      {activeTheme === 'consul' && <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap');
+        .min-h-screen {
+          background: #e8e0d4 !important;
+          background-image:
+            url("data:image/svg+xml,%3Csvg width='200' height='200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E"),
+            repeating-linear-gradient(0deg, transparent 0px, transparent 39px, rgba(120,80,50,0.04) 39px, rgba(120,80,50,0.04) 40px) !important;
+        }
+        *, ::before, ::after { border-color: rgba(120,80,50,0.2) !important; }
+        h1, h2, h3, h4, h5, h6 {
+          font-family: 'Cinzel', 'Trajan Pro', serif !important;
+          color: #7f1d1d !important;
+          font-weight: 700 !important;
+          text-transform: uppercase !important;
+          letter-spacing: 4px !important;
+          text-shadow: none !important;
+        }
+        h1 { letter-spacing: 6px !important; }
+        p, span, label, a, button, th, td, li, div {
+          font-family: 'Cormorant Garamond', 'Palatino Linotype', serif !important;
+          color: #44403c !important;
+          font-size: 1.05em !important;
+          text-shadow: none !important;
+        }
+        header h1, header p, header span, header div { color: #fef3c7 !important; }
+        input, select, textarea {
+          background: rgba(232,224,212,0.7) !important;
+          color: #44403c !important;
+          border: 1px solid rgba(120,80,50,0.25) !important;
+          border-radius: 0 !important;
+          font-family: 'Cormorant Garamond', serif !important;
+          font-size: 1.05em !important;
+        }
+        input::placeholder { color: rgba(68,64,60,0.4) !important; font-style: italic !important; }
+        svg { color: #7f1d1d !important; filter: none !important; }
+        .rounded-2xl, .rounded-xl, .rounded-lg { border-radius: 0 !important; }
+
+        /* Cards = marble tablets */
+        [class*="rounded-2xl"], [class*="shadow-md"] {
+          background: linear-gradient(180deg, #f5f0e8 0%, #e8e0d4 100%) !important;
+          border: 1px solid rgba(120,80,50,0.15) !important;
+          border-top: 3px solid #7f1d1d !important;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
+          border-radius: 0 !important;
+        }
+
+        [class*="bg-gray-"], [class*="bg-slate-"], [class*="bg-white"],
+        [class*="bg-blue-50"], [class*="bg-purple-50"], [class*="bg-emerald-50"],
+        [class*="bg-amber-50"], [class*="bg-rose-50"], [class*="bg-cyan-50"],
+        [class*="bg-green-50"], [class*="bg-indigo-50"] {
+          background: rgba(232,224,212,0.5) !important;
+        }
+
+        /* Buttons = imperial red */
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: #7f1d1d !important;
+          border: 1px solid rgba(120,80,50,0.3) !important;
+          border-radius: 0 !important;
+          letter-spacing: 2px !important;
+          text-transform: uppercase !important;
+        }
+
+        /* Tab active = deep red underline */
+        [class*="border-b-2"][class*="border-indigo-600"] {
+          border-color: #7f1d1d !important;
+        }
+
+        /* Laurel wreath divider — subtle top border accent on cards */
+        .space-y-4 > div:first-child [class*="rounded-2xl"] {
+          border-top: 4px double #7f1d1d !important;
         }
       `}</style>}
       {/* Header */}
