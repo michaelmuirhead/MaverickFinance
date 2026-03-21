@@ -271,7 +271,7 @@ function SwipeRow({ children, actions, isOpen, onToggle, darkMode }) {
 // ─── Main App ─────────────────────────────────────────────────────────────
 
 // ─── Helper: Build planner items for a given month (avoids duplication) ────
-function buildPlannerItemsForMonth(year, month, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth) {
+function buildPlannerItemsForMonth(year, month, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth, subscriptions) {
   const key = monthKey(year, month);
   const dismissed = plannerDismissedByMonth[key] || [];
   const overrides = incomeOverrides[key] || {};
@@ -305,7 +305,14 @@ function buildPlannerItemsForMonth(year, month, incomeSources, bills, debts, goa
   goals.filter((g) => g.monthlyContribution > 0).forEach((g) => {
     autoItems.push({ id: `planner-savings-${g.id}`, amount: g.monthlyContribution, type: "expense", paid: false });
   });
-  
+  // Subscriptions
+  if (subscriptions) {
+    subscriptions.filter(s => s.active).forEach((s) => {
+      const monthlyAmt = s.frequency === "yearly" ? s.amount / 12 : s.frequency === "quarterly" ? s.amount / 3 : s.frequency === "weekly" ? s.amount * 4.33 : s.amount;
+      autoItems.push({ id: `planner-sub-${s.id}`, amount: Math.round(monthlyAmt * 100) / 100, type: "expense", paid: false });
+    });
+  }
+
   return { autoItems, dismissed };
 }
 
@@ -768,10 +775,39 @@ export default function PaycheckPlanner() {
     }));
   }, [goals, viewYear, viewMonth]);
 
-  // All expenses for the month (recurring bills + debt + savings + manual)
+  // Subscriptions as recurring expenses
+  const recurringSubExpenses = useMemo(() => {
+    const mm = String(viewMonth + 1).padStart(2, "0");
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    return subscriptions.filter(s => s.active).map((s) => {
+      // Calculate monthly equivalent amount
+      const monthlyAmount = s.frequency === "yearly" ? s.amount / 12 : s.frequency === "quarterly" ? s.amount / 3 : s.frequency === "weekly" ? s.amount * 4.33 : s.amount;
+      // Determine the date for this month
+      let dayStr = "01";
+      if (s.nextBillDate) {
+        const nd = new Date(s.nextBillDate);
+        if (nd.getMonth() === viewMonth && nd.getFullYear() === viewYear) {
+          dayStr = String(nd.getDate()).padStart(2, "0");
+        } else {
+          dayStr = String(Math.min(nd.getDate() || 1, daysInMonth)).padStart(2, "0");
+        }
+      }
+      return {
+        id: `sub-${s.id}`,
+        description: s.name,
+        amount: Math.round(monthlyAmount * 100) / 100,
+        category: s.category || "Subscriptions",
+        date: `${viewYear}-${mm}-${dayStr}`,
+        recurring: true,
+        type: "subscription",
+      };
+    });
+  }, [subscriptions, viewYear, viewMonth]);
+
+  // All expenses for the month (recurring bills + debt + savings + subscriptions + manual)
   const allMonthExpenses = useMemo(() => {
-    return [...recurringBillExpenses, ...recurringDebtExpenses, ...recurringSavingsExpenses, ...manualExpenses.map((e) => ({ ...e, recurring: false, type: "manual" }))];
-  }, [recurringBillExpenses, recurringDebtExpenses, recurringSavingsExpenses, manualExpenses]);
+    return [...recurringBillExpenses, ...recurringDebtExpenses, ...recurringSavingsExpenses, ...recurringSubExpenses, ...manualExpenses.map((e) => ({ ...e, recurring: false, type: "manual" }))];
+  }, [recurringBillExpenses, recurringDebtExpenses, recurringSavingsExpenses, recurringSubExpenses, manualExpenses]);
 
   const totalBills = bills.reduce((s, b) => s + b.amount, 0);
   const totalDebtPayments = debts.reduce((s, d) => s + d.minPayment + d.extraPayment, 0);
@@ -831,7 +867,7 @@ export default function PaycheckPlanner() {
       const label = new Date(tY, tM, 1).toLocaleDateString("en-US", { month: "short" });
       const paidMap = plannerPaidByMonth[key] || {};
       
-      const { autoItems, dismissed } = buildPlannerItemsForMonth(tY, tM, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth);
+      const { autoItems, dismissed } = buildPlannerItemsForMonth(tY, tM, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth, subscriptions);
       
       const active = autoItems.filter((item) => !dismissed.includes(item.id) && paidMap[item.id]);
       const manual = (plannerManualByMonth[key] || []).filter((mi) => mi.paid);
@@ -930,7 +966,7 @@ export default function PaycheckPlanner() {
       const label = new Date(viewYear, m, 1).toLocaleDateString("en-US", { month: "short" });
       const paidMap = plannerPaidByMonth[key] || {};
       
-      const { autoItems, dismissed } = buildPlannerItemsForMonth(viewYear, m, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth);
+      const { autoItems, dismissed } = buildPlannerItemsForMonth(viewYear, m, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth, subscriptions);
 
       // Filter dismissed and ONLY PAID items (both income AND expenses must be marked paid)
       const active = autoItems.filter((i) => !dismissed.includes(i.id) && paidMap[i.id]);
@@ -955,7 +991,7 @@ export default function PaycheckPlanner() {
       const key = monthKey(py, m);
       const label = new Date(py, m, 1).toLocaleDateString("en-US", { month: "short" });
       const paidMap = plannerPaidByMonth[key] || {};
-      const { autoItems, dismissed } = buildPlannerItemsForMonth(py, m, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth);
+      const { autoItems, dismissed } = buildPlannerItemsForMonth(py, m, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth, subscriptions);
       const active = autoItems.filter((i) => !dismissed.includes(i.id) && paidMap[i.id]);
       const manual = (plannerManualByMonth[key] || []).filter((mi) => mi.paid);
       const all = [...active, ...manual];
@@ -1266,12 +1302,26 @@ export default function PaycheckPlanner() {
       auto.push({ id: pid, label: `${g.name} contribution`, amount: g.monthlyContribution, type: "expense", paid: !!plannerPaidMap[pid], auto: true, source: "savings",
         dateSortKey: `${viewYear}-${mm}-01`, dateLabel: "Monthly" });
     });
+    // Subscriptions
+    const daysInMo = new Date(viewYear, viewMonth + 1, 0).getDate();
+    subscriptions.filter(s => s.active).forEach((s) => {
+      const pid = `planner-sub-${s.id}`;
+      const monthlyAmt = s.frequency === "yearly" ? s.amount / 12 : s.frequency === "quarterly" ? s.amount / 3 : s.frequency === "weekly" ? s.amount * 4.33 : s.amount;
+      let dayStr = "01";
+      if (s.nextBillDate) {
+        const nd = new Date(s.nextBillDate);
+        if (nd.getMonth() === viewMonth && nd.getFullYear() === viewYear) dayStr = String(nd.getDate()).padStart(2, "0");
+        else dayStr = String(Math.min(nd.getDate() || 1, daysInMo)).padStart(2, "0");
+      }
+      auto.push({ id: pid, label: s.name, amount: Math.round(monthlyAmt * 100) / 100, type: "expense", paid: !!plannerPaidMap[pid], auto: true, source: "subscription",
+        dateSortKey: `${viewYear}-${mm}-${dayStr}`, dateLabel: s.nextBillDate ? `Due ${parseInt(dayStr)}` : "Monthly" });
+    });
     // Filter out dismissed auto items
     const filtered = auto.filter((item) => !plannerDismissed.includes(item.id));
     // Add manual items
     const manual = plannerManualItems.map((m) => ({ ...m, auto: false, source: "manual" }));
     return [...filtered, ...manual];
-  }, [monthPaychecks, bills, debts, goals, plannerDismissed, plannerPaidMap, plannerManualItems, viewYear, viewMonth]);
+  }, [monthPaychecks, bills, debts, goals, subscriptions, plannerDismissed, plannerPaidMap, plannerManualItems, viewYear, viewMonth]);
 
   const addPlannerItem = (item) => {
     const key = vKey;
@@ -3604,7 +3654,7 @@ export default function PaycheckPlanner() {
                     className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                   <select value={billDraft.category} onChange={(e) => setBillDraft({ ...billDraft, category: e.target.value })}
                     className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    {EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                    {customCategories.map((cat) => <option key={cat.name}>{cat.name}</option>)}
                   </select>
                   <div className="flex gap-2">
                     <button onClick={() => { if (billDraft.name && billDraft.amount) { if (editingBillId) updateBill(editingBillId, { ...billDraft, amount: +billDraft.amount }); else addBill({ ...billDraft, amount: +billDraft.amount }); } }}
@@ -4165,7 +4215,7 @@ export default function PaycheckPlanner() {
                       setExpDraft({ ...expDraft, category: cat, goalId: cat === "Savings" ? (goals[0]?.id || "") : "", description: cat === "Savings" && !expDraft.description ? (goals[0]?.name || "") + " contribution" : expDraft.description });
                     }}
                       className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                      {EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                      {customCategories.map((cat) => <option key={cat.name}>{cat.name}</option>)}
                     </select>
                     <input type="date" value={expDraft.date} onChange={(e) => setExpDraft({ ...expDraft, date: e.target.value })}
                       className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
@@ -5764,7 +5814,7 @@ export default function PaycheckPlanner() {
                     </select>
                     <select value={subDraft.category} onChange={(e) => setSubDraft({ ...subDraft, category: e.target.value })}
                       className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white">
-                      {EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                      {customCategories.map((cat) => <option key={cat.name}>{cat.name}</option>)}
                     </select>
                     <input type="date" value={subDraft.nextBillDate} onChange={(e) => setSubDraft({ ...subDraft, nextBillDate: e.target.value })}
                       className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
@@ -6475,7 +6525,7 @@ export default function PaycheckPlanner() {
               setQuickAdd({ ...quickAdd, category: cat, goalId: cat === "Savings" ? (goals[0]?.id || "") : "", description: cat === "Savings" && !quickAdd.description ? (goals[0]?.name || "") + " contribution" : quickAdd.description });
             }}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-              {EXPENSE_CATEGORIES.filter((c) => c !== "Debt Payment").map((c) => <option key={c}>{c}</option>)}
+              {customCategories.filter((cat) => cat.name !== "Debt Payment").map((cat) => <option key={cat.name}>{cat.name}</option>)}
             </select>
             {quickAdd.category === "Savings" && (
               <select value={quickAdd.goalId || ""} onChange={(e) => {
