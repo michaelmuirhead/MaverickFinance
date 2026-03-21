@@ -492,6 +492,22 @@ export default function PaycheckPlanner() {
   const [budgetDraft, setBudgetDraft] = useState(null);
   const [editingBudgetCat, setEditingBudgetCat] = useState(null);
   const [tab, setTab] = useState("dashboard");
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+
+  // ── Tutorial steps ──
+  const tutorialSteps = [
+    { tab: "dashboard", title: "Dashboard", desc: "Your financial command center. See your monthly income, bills, savings rate, and spending breakdown at a glance. The stat cards at the top show key numbers, and the chart breaks down where your money goes." },
+    { tab: "planner", title: "Planner", desc: "Map out each paycheck's budget. See what bills come out of which paycheck, manually add expenses, and mark items as paid. This is where you plan how to spend each paycheck before it hits." },
+    { tab: "bills", title: "Bills", desc: "Track all your recurring bills in one place. Each bill shows its due date, amount, and category. Bills are automatically assigned to paychecks based on due dates. Use the calendar view to see everything mapped out." },
+    { tab: "savings", title: "Savings Goals", desc: "Set savings targets and track progress. Add monthly contributions, log deposits, and watch your progress bar fill up. Great for emergency funds, vacations, or any goal you're working toward." },
+    { tab: "expenses", title: "Expenses", desc: "Log individual purchases and spending. Set category budgets to see how your actual spending compares to what you planned. You can also use recurring expense templates for regular purchases." },
+    { tab: "debt", title: "Debt Payoff", desc: "Track loans and credit cards. See your total debt, choose between avalanche (highest interest first) or snowball (lowest balance first) strategies, and watch a projected payoff timeline." },
+    { tab: "networth", title: "Net Worth", desc: "Track your big-picture financial health. Add assets (savings, investments, property) and liabilities (loans, credit cards) to see your total net worth and how it changes over time." },
+    { tab: "flow", title: "Cash Flow", desc: "Project your cash balance forward 30-90 days. See when money comes in and goes out, and identify potential shortfalls before they happen." },
+    { tab: "wishlist", title: "Wishlist", desc: "Plan future purchases. Add items you want to buy, set priorities, and track how long it'll take to save for each one based on your current savings rate." },
+    { tab: "calendar", title: "Calendar", desc: "See all your financial events on a monthly calendar — paydays, bill due dates, subscription renewals, and debt payments, all color-coded and easy to scan." },
+  ];
 
   // ── Month navigation ──
   const goMonth = (dir) => {
@@ -794,7 +810,7 @@ export default function PaycheckPlanner() {
     if (sorted.length === 0) return [{ label: "No paychecks", bills: [...bills].sort((a, b) => a.dueDay - b.dueDay) }];
     if (sorted.length === 1) return [{ label: sorted[0].label, payDate: sorted[0].date, bills: [...bills].sort((a, b) => a.dueDay - b.dueDay) }];
     return sorted.map((check, i) => {
-      const startDay = check.date.getDate();
+      const startDay = i === 0 ? 1 : check.date.getDate();
       const endDay = i < sorted.length - 1 ? sorted[i + 1].date.getDate() - 1 : new Date(viewYear, viewMonth + 1, 0).getDate();
       return {
         label: check.label,
@@ -1555,7 +1571,7 @@ export default function PaycheckPlanner() {
               )}
               {onboardingStep === 2 && (
                 <>
-                  <div className="space-y-4 max-h-64 overflow-y-auto pr-1">
+                  <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
                     {od.incomeSources.map((src, i) => (
                       <div key={i} className="bg-gray-50 rounded-xl p-3 space-y-2 relative">
                         {od.incomeSources.length > 1 && (
@@ -1590,7 +1606,7 @@ export default function PaycheckPlanner() {
               )}
               {onboardingStep === 3 && (
                 <>
-                  <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                  <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
                     {od.bills.map((bill, i) => (
                       <div key={i} className="bg-gray-50 rounded-xl p-3 relative">
                         {od.bills.length > 1 && (
@@ -1622,7 +1638,7 @@ export default function PaycheckPlanner() {
               )}
               {onboardingStep === 4 && (
                 <>
-                  <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                  <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
                     {od.savingsGoals.map((goal, i) => (
                       <div key={i} className="bg-gray-50 rounded-xl p-3 relative space-y-2">
                         {od.savingsGoals.length > 1 && (
@@ -2614,6 +2630,43 @@ export default function PaycheckPlanner() {
           pointer-events: none;
         }
       `}</style>}
+
+      {/* Tutorial Overlay */}
+      {showTutorial && tutorialSteps[tutorialStep] && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowTutorial(false)}>
+          <div className={`max-w-md w-full ${dm('bg-white', 'bg-slate-800')} rounded-2xl shadow-2xl p-6 relative`} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setShowTutorial(false)} className={`absolute top-3 right-3 ${dm('text-gray-400 hover:text-gray-600', 'text-gray-500 hover:text-gray-300')} transition`}><X size={18} /></button>
+            <div className="text-center mb-4">
+              <span className="text-3xl mb-2 block">{(() => { const icons = { dashboard: "📊", planner: "📋", bills: "📅", savings: "🐷", expenses: "💰", debt: "💳", networth: "🏦", flow: "📈", wishlist: "⭐", calendar: "🗓️" }; return icons[tutorialSteps[tutorialStep].tab] || "📖"; })()}</span>
+              <p className={`text-xs font-semibold uppercase tracking-wider ${dm('text-indigo-600', 'text-indigo-400')} mb-1`}>Step {tutorialStep + 1} of {tutorialSteps.length}</p>
+              <h3 className={`text-xl font-bold ${dm('text-gray-900', 'text-white')}`}>{tutorialSteps[tutorialStep].title}</h3>
+            </div>
+            <p className={`text-sm leading-relaxed ${dm('text-gray-600', 'text-gray-300')} mb-6`}>{tutorialSteps[tutorialStep].desc}</p>
+            <div className="flex items-center justify-between">
+              <button onClick={() => { if (tutorialStep > 0) { setTutorialStep(tutorialStep - 1); setTab(tutorialSteps[tutorialStep - 1].tab); } }}
+                disabled={tutorialStep === 0}
+                className={`text-sm flex items-center gap-1 ${tutorialStep === 0 ? 'text-gray-300 cursor-not-allowed' : dm('text-gray-500 hover:text-gray-700', 'text-gray-400 hover:text-gray-200')} transition`}>
+                <ChevronLeft size={16} /> Back
+              </button>
+              <div className="flex gap-1">
+                {tutorialSteps.map((_, i) => <div key={i} className={`w-2 h-2 rounded-full transition ${i === tutorialStep ? 'bg-indigo-500' : dm('bg-gray-200', 'bg-slate-600')}`} />)}
+              </div>
+              {tutorialStep < tutorialSteps.length - 1 ? (
+                <button onClick={() => { setTutorialStep(tutorialStep + 1); setTab(tutorialSteps[tutorialStep + 1].tab); }}
+                  className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 transition">
+                  Next <ChevronRight size={16} />
+                </button>
+              ) : (
+                <button onClick={() => setShowTutorial(false)}
+                  className="text-sm font-semibold bg-indigo-600 text-white px-4 py-1.5 rounded-lg hover:bg-indigo-700 transition">
+                  Done!
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className={`${isThemed ? theme.headerClass : dm('bg-white/80', 'bg-slate-900/80')} backdrop-blur-md ${isThemed ? '' : dm('border-gray-200', 'border-slate-700')} border-b sticky top-0 z-30`}>
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -2707,6 +2760,14 @@ export default function PaycheckPlanner() {
                     className={`w-full text-left px-3 py-2 rounded flex items-center gap-2 text-xs transition ${dm('hover:bg-gray-100 text-gray-600', 'hover:bg-slate-700 text-slate-300')}`}>
                     👋 Run Setup Wizard
                   </button>
+                  <button onClick={() => { setShowTutorial(true); setTutorialStep(0); setTab("dashboard"); }}
+                    className={`w-full text-left px-3 py-2 rounded flex items-center gap-2 text-xs transition ${dm('hover:bg-gray-100 text-gray-600', 'hover:bg-slate-700 text-slate-300')}`}>
+                    📖 App Tutorial
+                  </button>
+                  <button onClick={() => { if (window.confirm("Are you sure? This will erase ALL your budget data and start fresh. This cannot be undone.")) { localStorage.removeItem("maverick-finance-data"); window.location.reload(); }}}
+                    className={`w-full text-left px-3 py-2 rounded flex items-center gap-2 text-xs transition ${dm('hover:bg-red-50 text-red-600', 'hover:bg-red-900/30 text-red-400')}`}>
+                    🔄 Reset All Data
+                  </button>
                 </div>
               </div>
             </div>
@@ -2727,7 +2788,7 @@ export default function PaycheckPlanner() {
               </button>
             </div>
             {searchResults.length > 0 && (
-              <div className="mt-2 max-h-64 overflow-y-auto space-y-1">
+              <div className="mt-2 max-h-80 overflow-y-auto space-y-1">
                 {searchResults.map((r, i) => (
                   <button key={i} onClick={() => { setTab(r.tab); setShowSearch(false); setGlobalSearch(""); }}
                     className={`w-full text-left flex items-center gap-3 p-2.5 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-800')} transition`}>
