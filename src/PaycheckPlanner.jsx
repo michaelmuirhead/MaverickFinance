@@ -317,9 +317,9 @@ export default function PaycheckPlanner() {
   const [onboardingStep, setOnboardingStep] = useState(0); // 0 = not started / done
   const [showOnboarding, setShowOnboarding] = useState(!savedData); // auto-show on first visit only
   const [onboardingData, setOnboardingData] = useState({
-    name: "", payAmount: "", payFrequency: "biweekly", referenceDate: "",
-    rent: "", rentDay: 1, carPayment: "", carDay: 5, utilities: "", utilDay: 15,
-    savingsGoal: "", savingsMonthly: ""
+    incomeSources: [{ name: "Primary Job", amount: "", frequency: "biweekly", referenceDate: "" }],
+    bills: [{ name: "Rent / Mortgage", amount: "", dueDay: 1 }, { name: "Car Payment", amount: "", dueDay: 5 }, { name: "Utilities", amount: "", dueDay: 15 }],
+    savingsGoals: [{ name: "Emergency Fund", monthlyContribution: "", target: 10000 }]
   });
 
   // ─── Feature 2: Dismissed suggestions ───
@@ -1327,16 +1327,18 @@ export default function PaycheckPlanner() {
   // ─── Onboarding wizard helpers ───
   const finishOnboarding = () => {
     const d = onboardingData;
-    if (d.payAmount) {
-      setIncomeSources([{ id: uid(), name: d.name || "Primary Job", amount: parseFloat(d.payAmount) || 0, frequency: d.payFrequency, referenceDate: d.referenceDate || "2026-03-07" }]);
+    const validIncome = d.incomeSources.filter(s => s.amount && parseFloat(s.amount) > 0);
+    if (validIncome.length > 0) {
+      setIncomeSources(validIncome.map(s => ({ id: uid(), name: s.name || "Job", amount: parseFloat(s.amount) || 0, frequency: s.frequency, referenceDate: s.referenceDate || "2026-03-07" })));
     }
-    const newBills = [];
-    if (d.rent && parseFloat(d.rent) > 0) newBills.push({ id: uid(), name: "Rent / Mortgage", amount: parseFloat(d.rent), dueDay: d.rentDay || 1, category: "Housing", autopay: false });
-    if (d.carPayment && parseFloat(d.carPayment) > 0) newBills.push({ id: uid(), name: "Car Payment", amount: parseFloat(d.carPayment), dueDay: d.carDay || 5, category: "Transportation", autopay: false });
-    if (d.utilities && parseFloat(d.utilities) > 0) newBills.push({ id: uid(), name: "Utilities", amount: parseFloat(d.utilities), dueDay: d.utilDay || 15, category: "Utilities", autopay: false });
-    if (newBills.length > 0) setBills(newBills);
-    if (d.savingsGoal && d.savingsMonthly && parseFloat(d.savingsMonthly) > 0) {
-      setGoals([{ id: uid(), name: d.savingsGoal || "Savings", target: 10000, saved: 0, monthlyContribution: parseFloat(d.savingsMonthly), color: "#6366f1" }]);
+    const validBills = d.bills.filter(b => b.amount && parseFloat(b.amount) > 0);
+    if (validBills.length > 0) {
+      setBills(validBills.map(b => ({ id: uid(), name: b.name || "Bill", amount: parseFloat(b.amount), dueDay: b.dueDay || 1, category: "General", autopay: false })));
+    }
+    const validGoals = d.savingsGoals.filter(g => g.monthlyContribution && parseFloat(g.monthlyContribution) > 0);
+    if (validGoals.length > 0) {
+      const goalColors = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
+      setGoals(validGoals.map((g, i) => ({ id: uid(), name: g.name || "Savings", target: parseFloat(g.target) || 10000, saved: 0, monthlyContribution: parseFloat(g.monthlyContribution), color: goalColors[i % goalColors.length] })));
     }
     setShowOnboarding(false);
     setOnboardingStep(0);
@@ -1356,9 +1358,22 @@ export default function PaycheckPlanner() {
     const stepInfo = onboardingSteps[onboardingStep - 1];
     const od = onboardingData;
     const setOd = (k, v) => setOnboardingData(prev => ({ ...prev, [k]: v }));
+    const updateListItem = (listKey, index, field, value) => {
+      setOnboardingData(prev => {
+        const arr = [...prev[listKey]];
+        arr[index] = { ...arr[index], [field]: value };
+        return { ...prev, [listKey]: arr };
+      });
+    };
+    const addListItem = (listKey, template) => {
+      setOnboardingData(prev => ({ ...prev, [listKey]: [...prev[listKey], template] }));
+    };
+    const removeListItem = (listKey, index) => {
+      setOnboardingData(prev => ({ ...prev, [listKey]: prev[listKey].filter((_, i) => i !== index) }));
+    };
     const canNext = () => {
-      if (onboardingStep === 1) return true; // welcome is always passable
-      if (onboardingStep === 2) return od.payAmount && parseFloat(od.payAmount) > 0;
+      if (onboardingStep === 1) return true;
+      if (onboardingStep === 2) return od.incomeSources.some(s => s.amount && parseFloat(s.amount) > 0);
       return true;
     };
     return (
@@ -1391,115 +1406,120 @@ export default function PaycheckPlanner() {
               )}
               {onboardingStep === 2 && (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Income source name</label>
-                    <input type="text" placeholder="e.g. Primary Job" value={od.name} onChange={e => setOd("name", e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Take-home pay</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                        <input type="number" placeholder="0.00" value={od.payAmount} onChange={e => setOd("payAmount", e.target.value)}
-                          className="w-full border border-gray-200 rounded-xl pl-8 pr-4 py-3 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
+                  <div className="space-y-4 max-h-64 overflow-y-auto pr-1">
+                    {od.incomeSources.map((src, i) => (
+                      <div key={i} className="bg-gray-50 rounded-xl p-3 space-y-2 relative">
+                        {od.incomeSources.length > 1 && (
+                          <button onClick={() => removeListItem("incomeSources", i)} className="absolute top-2 right-2 text-gray-400 hover:text-red-500 transition" title="Remove"><X size={14} /></button>
+                        )}
+                        <input type="text" placeholder="e.g. Primary Job" value={src.name} onChange={e => updateListItem("incomeSources", i, "name", e.target.value)}
+                          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                            <input type="number" placeholder="0.00" value={src.amount} onChange={e => updateListItem("incomeSources", i, "amount", e.target.value)}
+                              className="w-full border border-gray-200 rounded-xl pl-7 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
+                          </div>
+                          <select value={src.frequency} onChange={e => updateListItem("incomeSources", i, "frequency", e.target.value)}
+                            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none bg-white">
+                            <option value="weekly">Weekly</option>
+                            <option value="biweekly">Biweekly</option>
+                            <option value="semimonthly">Semi-Monthly</option>
+                            <option value="monthly">Monthly</option>
+                          </select>
+                        </div>
+                        <input type="date" value={src.referenceDate} onChange={e => updateListItem("incomeSources", i, "referenceDate", e.target.value)}
+                          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
                       </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Pay frequency</label>
-                      <select value={od.payFrequency} onChange={e => setOd("payFrequency", e.target.value)}
-                        className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none bg-white">
-                        <option value="weekly">Weekly</option>
-                        <option value="biweekly">Biweekly</option>
-                        <option value="semimonthly">Semi-Monthly</option>
-                        <option value="monthly">Monthly</option>
-                      </select>
-                    </div>
+                    ))}
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Last paycheck date</label>
-                    <input type="date" value={od.referenceDate} onChange={e => setOd("referenceDate", e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
-                  </div>
+                  <button onClick={() => addListItem("incomeSources", { name: "", amount: "", frequency: "biweekly", referenceDate: "" })}
+                    className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-indigo-400 hover:text-indigo-600 transition flex items-center justify-center gap-1.5">
+                    <Plus size={15} /> Add Another Income Source
+                  </button>
                 </>
               )}
               {onboardingStep === 3 && (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Rent / Mortgage</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                        <input type="number" placeholder="0" value={od.rent} onChange={e => setOd("rent", e.target.value)}
-                          className="w-full border border-gray-200 rounded-xl pl-8 pr-4 py-3 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
+                  <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                    {od.bills.map((bill, i) => (
+                      <div key={i} className="bg-gray-50 rounded-xl p-3 relative">
+                        {od.bills.length > 1 && (
+                          <button onClick={() => removeListItem("bills", i)} className="absolute top-2 right-2 text-gray-400 hover:text-red-500 transition" title="Remove"><X size={14} /></button>
+                        )}
+                        <input type="text" placeholder="Bill name" value={bill.name} onChange={e => updateListItem("bills", i, "name", e.target.value)}
+                          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none mb-2" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                            <input type="number" placeholder="0" value={bill.amount} onChange={e => updateListItem("bills", i, "amount", e.target.value)}
+                              className="w-full border border-gray-200 rounded-xl pl-7 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
+                          </div>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">Day</span>
+                            <input type="number" min="1" max="31" value={bill.dueDay} onChange={e => updateListItem("bills", i, "dueDay", parseInt(e.target.value) || 1)}
+                              className="w-full border border-gray-200 rounded-xl pl-11 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Due day</label>
-                      <input type="number" min="1" max="31" value={od.rentDay} onChange={e => setOd("rentDay", parseInt(e.target.value) || 1)}
-                        className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
-                    </div>
+                    ))}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Car Payment</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                        <input type="number" placeholder="0" value={od.carPayment} onChange={e => setOd("carPayment", e.target.value)}
-                          className="w-full border border-gray-200 rounded-xl pl-8 pr-4 py-3 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Due day</label>
-                      <input type="number" min="1" max="31" value={od.carDay} onChange={e => setOd("carDay", parseInt(e.target.value) || 5)}
-                        className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Utilities</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                        <input type="number" placeholder="0" value={od.utilities} onChange={e => setOd("utilities", e.target.value)}
-                          className="w-full border border-gray-200 rounded-xl pl-8 pr-4 py-3 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Due day</label>
-                      <input type="number" min="1" max="31" value={od.utilDay} onChange={e => setOd("utilDay", parseInt(e.target.value) || 15)}
-                        className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-400 text-center">Leave any field at $0 to skip it. Add more bills later from the Bills tab.</p>
+                  <button onClick={() => addListItem("bills", { name: "", amount: "", dueDay: 1 })}
+                    className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-indigo-400 hover:text-indigo-600 transition flex items-center justify-center gap-1.5">
+                    <Plus size={15} /> Add Another Bill
+                  </button>
+                  <p className="text-xs text-gray-400 text-center">Leave amount at $0 to skip any bill.</p>
                 </>
               )}
               {onboardingStep === 4 && (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">What are you saving for?</label>
-                    <input type="text" placeholder="e.g. Emergency Fund, Vacation" value={od.savingsGoal} onChange={e => setOd("savingsGoal", e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
+                  <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                    {od.savingsGoals.map((goal, i) => (
+                      <div key={i} className="bg-gray-50 rounded-xl p-3 relative space-y-2">
+                        {od.savingsGoals.length > 1 && (
+                          <button onClick={() => removeListItem("savingsGoals", i)} className="absolute top-2 right-2 text-gray-400 hover:text-red-500 transition" title="Remove"><X size={14} /></button>
+                        )}
+                        <input type="text" placeholder="e.g. Emergency Fund, Vacation" value={goal.name} onChange={e => updateListItem("savingsGoals", i, "name", e.target.value)}
+                          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$/mo</span>
+                            <input type="number" placeholder="0" value={goal.monthlyContribution} onChange={e => updateListItem("savingsGoals", i, "monthlyContribution", e.target.value)}
+                              className="w-full border border-gray-200 rounded-xl pl-12 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
+                          </div>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">Target $</span>
+                            <input type="number" placeholder="10000" value={goal.target} onChange={e => updateListItem("savingsGoals", i, "target", e.target.value)}
+                              className="w-full border border-gray-200 rounded-xl pl-16 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Monthly contribution</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                      <input type="number" placeholder="0" value={od.savingsMonthly} onChange={e => setOd("savingsMonthly", e.target.value)}
-                        className="w-full border border-gray-200 rounded-xl pl-8 pr-4 py-3 text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none" />
-                    </div>
-                  </div>
+                  <button onClick={() => addListItem("savingsGoals", { name: "", monthlyContribution: "", target: 10000 })}
+                    className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-indigo-400 hover:text-indigo-600 transition flex items-center justify-center gap-1.5">
+                    <Plus size={15} /> Add Another Goal
+                  </button>
                   <p className="text-xs text-gray-400 text-center">Optional — you can set this up later from the Savings tab.</p>
                 </>
               )}
-              {onboardingStep === 5 && (
-                <div className="text-center space-y-3">
-                  <div className="grid grid-cols-3 gap-2">
-                    {od.payAmount && <div className="bg-green-50 rounded-xl p-3"><p className="text-xs text-green-600 font-medium">Income</p><p className="text-lg font-bold text-green-700">${parseFloat(od.payAmount || 0).toLocaleString()}</p><p className="text-[10px] text-green-500">{od.payFrequency}</p></div>}
-                    {(od.rent || od.carPayment || od.utilities) && <div className="bg-rose-50 rounded-xl p-3"><p className="text-xs text-rose-600 font-medium">Bills</p><p className="text-lg font-bold text-rose-700">${((parseFloat(od.rent||0))+(parseFloat(od.carPayment||0))+(parseFloat(od.utilities||0))).toLocaleString()}</p><p className="text-[10px] text-rose-500">/month</p></div>}
-                    {od.savingsMonthly && <div className="bg-indigo-50 rounded-xl p-3"><p className="text-xs text-indigo-600 font-medium">Savings</p><p className="text-lg font-bold text-indigo-700">${parseFloat(od.savingsMonthly||0).toLocaleString()}</p><p className="text-[10px] text-indigo-500">/month</p></div>}
+              {onboardingStep === 5 && (() => {
+                const totalIncome = od.incomeSources.reduce((s, x) => s + (parseFloat(x.amount) || 0), 0);
+                const totalBills = od.bills.reduce((s, x) => s + (parseFloat(x.amount) || 0), 0);
+                const totalSavings = od.savingsGoals.reduce((s, x) => s + (parseFloat(x.monthlyContribution) || 0), 0);
+                const incomeCount = od.incomeSources.filter(x => parseFloat(x.amount) > 0).length;
+                const billCount = od.bills.filter(x => parseFloat(x.amount) > 0).length;
+                const goalCount = od.savingsGoals.filter(x => parseFloat(x.monthlyContribution) > 0).length;
+                return (
+                  <div className="text-center space-y-3">
+                    <div className="grid grid-cols-3 gap-2">
+                      {totalIncome > 0 && <div className="bg-green-50 rounded-xl p-3"><p className="text-xs text-green-600 font-medium">Income</p><p className="text-lg font-bold text-green-700">${totalIncome.toLocaleString()}</p><p className="text-[10px] text-green-500">{incomeCount} source{incomeCount !== 1 ? 's' : ''}</p></div>}
+                      {totalBills > 0 && <div className="bg-rose-50 rounded-xl p-3"><p className="text-xs text-rose-600 font-medium">Bills</p><p className="text-lg font-bold text-rose-700">${totalBills.toLocaleString()}</p><p className="text-[10px] text-rose-500">{billCount} bill{billCount !== 1 ? 's' : ''}/mo</p></div>}
+                      {totalSavings > 0 && <div className="bg-indigo-50 rounded-xl p-3"><p className="text-xs text-indigo-600 font-medium">Savings</p><p className="text-lg font-bold text-indigo-700">${totalSavings.toLocaleString()}</p><p className="text-[10px] text-indigo-500">{goalCount} goal{goalCount !== 1 ? 's' : ''}/mo</p></div>}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
             {/* Navigation */}
             <div className="flex items-center justify-between">
