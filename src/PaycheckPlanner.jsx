@@ -38,11 +38,15 @@ const THEMES = {
   papyrus: { name: "Papyrus", emoji: "🏺", bg: "bg-amber-100", cardClass: "border border-amber-700/30 bg-gradient-to-b from-amber-100 to-amber-200/60 shadow-inner", headerClass: "bg-amber-200/80 border-amber-700/30", textClass: "text-amber-900", accentColor: "#b45309", fontFamily: "'Palatino Linotype', 'Book Antiqua', serif", borderStyle: "border-amber-700/30", specialEffect: "papyrus" },
   lionheart: { name: "Lionheart", emoji: "🦁", bg: "bg-red-950", cardClass: "border border-yellow-600/40 bg-red-950/80 shadow-lg shadow-yellow-900/10", headerClass: "bg-red-950/90 border-yellow-600/40", textClass: "text-yellow-100", accentColor: "#ca8a04", fontFamily: "'Palatino Linotype', serif", borderStyle: "border-yellow-600/30", specialEffect: "lionheart" },
   fifties: { name: "The 1950s", emoji: "🎸", bg: "bg-pink-50", cardClass: "border-2 border-pink-300 bg-white rounded-2xl shadow-md", headerClass: "bg-gradient-to-r from-pink-400 via-sky-300 to-mint-300 border-pink-300", textClass: "text-pink-800", accentColor: "#ec4899", fontFamily: "'Georgia', serif", borderStyle: "border-pink-300", specialEffect: "fifties" },
+  cyberpunk: { name: "Cyberpunk", emoji: "🌆", bg: "bg-gray-950", cardClass: "border border-pink-500/30 bg-gray-950/90 shadow-[0_0_15px_rgba(236,72,153,0.1)]", headerClass: "bg-gray-950/95 border-pink-500/30", textClass: "text-pink-400", accentColor: "#ec4899", fontFamily: "'Orbitron', 'Courier New', monospace", borderStyle: "border-pink-500/20", specialEffect: "cyberpunk" },
+  minimalist: { name: "Minimalist", emoji: "◻️", bg: "bg-white", cardClass: "border border-gray-100 bg-white shadow-sm", headerClass: "bg-white border-gray-100", textClass: "text-gray-800", accentColor: "#1f2937", fontFamily: "'Inter', system-ui, sans-serif", borderStyle: "border-gray-100", specialEffect: "minimalist" },
+  academia: { name: "Dark Academia", emoji: "📚", bg: "bg-stone-900", cardClass: "border border-amber-800/30 bg-stone-900/90 shadow-lg", headerClass: "bg-stone-900/95 border-amber-800/30", textClass: "text-amber-100", accentColor: "#d97706", fontFamily: "'Libre Baskerville', 'Georgia', serif", borderStyle: "border-amber-800/25", specialEffect: "academia" },
 };
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: Wallet },
   { id: "planner", label: "Planner", icon: ClipboardList },
+  { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "bills", label: "Bills", icon: Calendar },
   { id: "savings", label: "Savings", icon: PiggyBank },
   { id: "expenses", label: "Expenses", icon: DollarSign },
@@ -463,6 +467,21 @@ export default function PaycheckPlanner() {
   const [cashFlowStartBal, setCashFlowStartBal] = useState(init("cashFlowStartBal", 0));
   const [editingStartBal, setEditingStartBal] = useState(false);
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // NEW FEATURES: FEATURE 2 (Tab Reordering), FEATURE 4 (Notification Badges), FEATURE 1 (Calendar)
+  // ═══════════════════════════════════════════════════════════════════════
+  const [tabOrder, setTabOrder] = useState(init("tabOrder", null));
+  const [showBadges, setShowBadges] = useState(init("showBadges", true));
+  const [calendarSelectedDay, setCalendarSelectedDay] = useState(null);
+
+  // ─── Tab order logic (Feature 2: Drag-to-Reorder Tabs) ───
+  const orderedTabs = useMemo(() => {
+    if (!tabOrder) return TABS;
+    const ordered = tabOrder.map(id => TABS.find(t => t.id === id)).filter(Boolean);
+    const newTabs = TABS.filter(t => !tabOrder.includes(t.id));
+    return [...ordered, ...newTabs];
+  }, [tabOrder]);
+
   // ─── Auto-save to localStorage ───
   useEffect(() => {
     try {
@@ -472,7 +491,7 @@ export default function PaycheckPlanner() {
         customCategories, categoryBudgets, darkMode, activeTheme,
         assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
         payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
-        wishlist, expenseTemplates, debtStrategy, cashFlowStartBal
+        wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) { /* storage full or unavailable — silent fail */ }
@@ -481,7 +500,7 @@ export default function PaycheckPlanner() {
     customCategories, categoryBudgets, darkMode, activeTheme,
     assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
     payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
-    wishlist, expenseTemplates, debtStrategy, cashFlowStartBal]);
+    wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // DERIVED DATA for the viewed month
@@ -643,6 +662,41 @@ export default function PaycheckPlanner() {
     }
     return points;
   }, [incomeSources, extraChecks, bills, debts, goals, incomeOverrides, plannerDismissedByMonth, plannerManualByMonth, plannerPaidByMonth, viewYear, viewMonth]);
+
+  // Notification badges (Feature 4: Notification Badges)
+  const tabBadges = useMemo(() => {
+    if (!showBadges) return {};
+    const badges = {};
+    // Bills: due within 3 days
+    const todayDate = today.getDate();
+    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    if (isCurrentMonth && bills.some(b => { const diff = b.dueDay - todayDate; return diff >= 0 && diff <= 3; })) badges.bills = true;
+    // Debt: DTI > 36%
+    if (monthlyIncome > 0 && (totalDebtPayments / monthlyIncome) > 0.36) badges.debt = true;
+    // Expenses: over budget
+    if (Object.entries(categoryBudgets).some(([cat, budget]) => {
+      const spent = manualExpenses.filter(e => e.category === cat).reduce((s, e) => s + e.amount, 0);
+      return spent > budget;
+    })) badges.expenses = true;
+    // Savings: goal reached
+    if (goals.some(g => g.saved >= g.target)) badges.savings = true;
+    // Health: score < 50 (computed inline for efficiency)
+    const efScore = (() => {
+      const monthlyExp = bills.reduce((s, b) => s + b.amount, 0) + debts.reduce((s, d) => s + d.minPayment + d.extraPayment, 0);
+      const emergencyTarget = monthlyExp * 3;
+      const emergencyFund = assets.filter(a => a.category === 'Cash').reduce((s, a) => s + a.balance, 0);
+      return Math.min(20, Math.round((emergencyFund / Math.max(emergencyTarget, 1)) * 20));
+    })();
+    const dti = monthlyIncome > 0 ? (debts.reduce((s, d) => s + d.minPayment + d.extraPayment, 0)) / monthlyIncome : 1;
+    const dtiScore = dti <= 0.1 ? 20 : dti <= 0.2 ? 16 : dti <= 0.36 ? 12 : dti <= 0.5 ? 6 : 0;
+    const savingsRate = monthlyIncome > 0 ? goals.reduce((s, g) => s + g.monthlyContribution, 0) / monthlyIncome : 0;
+    const srScore = savingsRate >= 0.2 ? 20 : savingsRate >= 0.15 ? 16 : savingsRate >= 0.1 ? 12 : savingsRate >= 0.05 ? 6 : 0;
+    const billCoverage = monthlyIncome > 0 ? bills.reduce((s, b) => s + b.amount, 0) / monthlyIncome : 1;
+    const bcScore = billCoverage <= 0.3 ? 20 : billCoverage <= 0.4 ? 16 : billCoverage <= 0.5 ? 12 : billCoverage <= 0.6 ? 6 : 0;
+    const totalScore = efScore + dtiScore + srScore + bcScore + 20; // +20 for net worth
+    if (totalScore < 50) badges.health = true;
+    return badges;
+  }, [showBadges, bills, debts, monthlyIncome, totalDebtPayments, categoryBudgets, manualExpenses, goals, assets, isCurrentMonth, today]);
 
   // Cash flow timeline — day-by-day for the viewed month
   const cashFlowTimeline = useMemo(() => {
@@ -807,7 +861,7 @@ export default function PaycheckPlanner() {
       customCategories, categoryBudgets, darkMode, activeTheme,
       assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
       payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
-      wishlist, expenseTemplates, debtStrategy, cashFlowStartBal
+      wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -854,6 +908,8 @@ export default function PaycheckPlanner() {
         if (data.expenseTemplates) setExpenseTemplates(data.expenseTemplates);
         if (data.debtStrategy) setDebtStrategy(data.debtStrategy);
         if (data.cashFlowStartBal !== undefined) setCashFlowStartBal(data.cashFlowStartBal);
+        if (data.tabOrder) setTabOrder(data.tabOrder);
+        if (data.showBadges !== undefined) setShowBadges(data.showBadges);
         alert('Data imported successfully!');
       } catch (error) {
         alert('Error importing data: ' + error.message);
@@ -1575,6 +1631,83 @@ export default function PaycheckPlanner() {
       {activeTheme === 'lego' && <style>{`
         .min-h-screen { background: #fef9c3 !important; background-image: radial-gradient(circle, rgba(220,38,38,0.08) 1px, transparent 1px) !important; background-size: 24px 24px !important; }
       `}</style>}
+      {activeTheme === 'cyberpunk' && <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+        *, ::before, ::after { border-color: rgba(236,72,153,0.15) !important; }
+        .min-h-screen {
+          background: #030712 !important;
+          background-image:
+            linear-gradient(rgba(236,72,153,0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(236,72,153,0.03) 1px, transparent 1px) !important;
+          background-size: 40px 40px !important;
+        }
+        h1, h2, h3, h4, h5, h6, p, span, label, a, button, th, td, li, div {
+          color: #f9a8d4 !important;
+          font-family: 'Orbitron', 'Courier New', monospace !important;
+        }
+        h1, h2, h3 {
+          text-shadow: 0 0 10px rgba(236,72,153,0.5), 0 0 40px rgba(236,72,153,0.2) !important;
+          text-transform: uppercase !important;
+          letter-spacing: 2px !important;
+        }
+        input, select, textarea {
+          background: rgba(3,7,18,0.9) !important;
+          color: #f9a8d4 !important;
+          border-color: rgba(236,72,153,0.3) !important;
+          font-family: 'Orbitron', monospace !important;
+        }
+        input::placeholder { color: rgba(236,72,153,0.3) !important; }
+        svg { color: #ec4899 !important; filter: drop-shadow(0 0 3px rgba(236,72,153,0.4)); }
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: linear-gradient(135deg, #ec4899, #8b5cf6) !important;
+        }
+        .rounded-2xl, .rounded-xl, .rounded-lg { border-radius: 2px !important; }
+      `}</style>}
+      {activeTheme === 'minimalist' && <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        .min-h-screen { background: #ffffff !important; }
+        h1, h2, h3, h4, h5, h6, p, span, label, a, button, th, td, li, div {
+          font-family: 'Inter', system-ui, sans-serif !important;
+          font-weight: 400 !important;
+        }
+        h1, h2, h3 { font-weight: 600 !important; letter-spacing: -0.02em !important; }
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: #1f2937 !important;
+          border-radius: 6px !important;
+        }
+        .rounded-2xl { border-radius: 12px !important; }
+      `}</style>}
+      {activeTheme === 'academia' && <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap');
+        *, ::before, ::after { border-color: rgba(217,119,6,0.15) !important; }
+        .min-h-screen {
+          background: #1c1917 !important;
+          background-image:
+            url("data:image/svg+xml,%3Csvg width='200' height='200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") !important;
+        }
+        h1, h2, h3, h4, h5, h6, p, span, label, a, button, th, td, li, div {
+          color: #fef3c7 !important;
+          font-family: 'Libre Baskerville', 'Georgia', serif !important;
+        }
+        h1, h2, h3 {
+          color: #fbbf24 !important;
+          letter-spacing: 0.5px !important;
+        }
+        input, select, textarea {
+          background: rgba(28,25,23,0.9) !important;
+          color: #fef3c7 !important;
+          border-color: rgba(217,119,6,0.3) !important;
+          font-family: 'Libre Baskerville', serif !important;
+        }
+        input::placeholder { color: rgba(254,243,199,0.3) !important; }
+        svg { color: #d97706 !important; }
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: #92400e !important;
+        }
+        [class*="bg-gray-"], [class*="bg-slate-"], [class*="bg-white"] {
+          background: rgba(28,25,23,0.7) !important;
+        }
+      `}</style>}
       {/* Header */}
       <header className={`${isThemed ? theme.headerClass : dm('bg-white/80', 'bg-slate-900/80')} backdrop-blur-md ${isThemed ? '' : dm('border-gray-200', 'border-slate-700')} border-b sticky top-0 z-30`}>
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -1634,6 +1767,16 @@ export default function PaycheckPlanner() {
                   ))}
                 </div>
                 <div className={`border-t ${dm('border-gray-100', 'border-slate-700')} my-1 pt-1`}>
+                  <button onClick={() => setShowBadges(!showBadges)}
+                    className={`w-full text-left px-3 py-2 rounded flex items-center gap-2 text-xs transition ${dm('hover:bg-gray-100 text-gray-600', 'hover:bg-slate-700 text-slate-300')}`}>
+                    {showBadges ? '🔔' : '🔕'} Notification Badges {showBadges ? 'On' : 'Off'}
+                  </button>
+                  <button onClick={() => setTabOrder(null)}
+                    className={`w-full text-left px-3 py-2 rounded flex items-center gap-2 text-xs transition ${dm('hover:bg-gray-100 text-gray-600', 'hover:bg-slate-700 text-slate-300')}`}>
+                    ↻ Reset Tab Order
+                  </button>
+                </div>
+                <div className={`border-t ${dm('border-gray-100', 'border-slate-700')} my-1 pt-1`}>
                   <button onClick={() => { setOnboardingStep(1); setShowOnboarding(true); }}
                     className={`w-full text-left px-3 py-2 rounded flex items-center gap-2 text-xs transition ${dm('hover:bg-gray-100 text-gray-600', 'hover:bg-slate-700 text-slate-300')}`}>
                     👋 Run Setup Wizard
@@ -1682,13 +1825,34 @@ export default function PaycheckPlanner() {
       {/* Tab Navigation */}
       <nav className={`${dm('bg-white border-gray-100', 'bg-slate-900 border-slate-700')} border-b sticky top-[57px] z-20`}>
         <div className="max-w-6xl mx-auto px-4 flex gap-0.5 overflow-x-auto pb-px" style={{ WebkitOverflowScrolling: 'touch' }}>
-          {TABS.map((t) => {
+          {orderedTabs.map((t, idx) => {
             const Icon = t.icon;
             const active = tab === t.id;
+            const handleDragStart = (e) => {
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('tabId', t.id);
+              e.dataTransfer.setData('tabIdx', idx);
+            };
+            const handleDragOver = (e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+            };
+            const handleDrop = (e) => {
+              e.preventDefault();
+              const draggedId = e.dataTransfer.getData('tabId');
+              const draggedIdx = parseInt(e.dataTransfer.getData('tabIdx'));
+              if (draggedId === t.id) return;
+              const newOrder = [...orderedTabs];
+              newOrder.splice(draggedIdx, 1);
+              newOrder.splice(idx, 0, orderedTabs[draggedIdx]);
+              setTabOrder(newOrder.map(tab => tab.id));
+            };
             return (
               <button key={t.id} onClick={() => setTab(t.id)}
-                className={`flex items-center gap-1 px-2.5 py-3 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${active ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+                draggable onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop}
+                className={`relative flex items-center gap-1 px-2.5 py-3 text-xs font-medium border-b-2 transition-colors whitespace-nowrap cursor-move hover:opacity-70 ${active ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
                 <Icon size={14} />{t.label}
+                {tabBadges[t.id] && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 absolute -top-0.5 -right-0.5" />}
               </button>
             );
           })}
@@ -1714,7 +1878,32 @@ export default function PaycheckPlanner() {
                 </div>
               ) : null;
             })()}
-                        {/* Income Sources + Paychecks for this month */}
+
+            {/* Feature 3: Dashboard Quick Actions */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <button onClick={() => { setExpDraft({ description: "", amount: "", category: "Other", date: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(Math.min(today.getDate(), new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0")}`, merchant: "" }); setTab("expenses"); }}
+                className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 transition ${dm('bg-white border-indigo-200 hover:bg-indigo-50 text-indigo-700', 'bg-slate-800 border-indigo-600/50 hover:bg-slate-700 text-indigo-300')}`}>
+                <DollarSign size={20} />
+                <span className="text-xs font-semibold">+ Expense</span>
+              </button>
+              <button onClick={() => { setIncomeDraft({ name: "", amount: "", frequency: "biweekly", referenceDate: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-01` }); setTab("planner"); }}
+                className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 transition ${dm('bg-white border-emerald-200 hover:bg-emerald-50 text-emerald-700', 'bg-slate-800 border-emerald-600/50 hover:bg-slate-700 text-emerald-300')}`}>
+                <TrendingUp size={20} />
+                <span className="text-xs font-semibold">+ Income</span>
+              </button>
+              <button onClick={() => { setBillDraft({ name: "", amount: "", dueDay: 1, category: "Utilities" }); setTab("bills"); }}
+                className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 transition ${dm('bg-white border-rose-200 hover:bg-rose-50 text-rose-700', 'bg-slate-800 border-rose-600/50 hover:bg-slate-700 text-rose-300')}`}>
+                <Calendar size={20} />
+                <span className="text-xs font-semibold">+ Bill</span>
+              </button>
+              <button onClick={() => { setGoalDraft({ name: "", target: "", saved: 0, monthlyContribution: "" }); setTab("savings"); }}
+                className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 transition ${dm('bg-white border-amber-200 hover:bg-amber-50 text-amber-700', 'bg-slate-800 border-amber-600/50 hover:bg-slate-700 text-amber-300')}`}>
+                <PiggyBank size={20} />
+                <span className="text-xs font-semibold">+ Goal</span>
+              </button>
+            </div>
+
+            {/* Income Sources + Paychecks for this month */}
             <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
               <div className="flex items-center justify-between mb-4">
                 <div>
@@ -4946,6 +5135,170 @@ export default function PaycheckPlanner() {
                       </div>
                     ))}
                   </div>
+                </Card>
+              )}
+            </>
+          );
+        })()}
+
+        {/* ═══════ FINANCIAL CALENDAR TAB ═══════ */}
+        {tab === "calendar" && (() => {
+          const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+          const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+          const days = [];
+          for (let i = 0; i < firstDay; i++) days.push(null);
+          for (let i = 1; i <= daysInMonth; i++) days.push(i);
+
+          // Helper to get events for a day
+          const getEventsForDay = (day) => {
+            if (!day) return [];
+            const events = [];
+            const padDay = String(day).padStart(2, '0');
+            const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${padDay}`;
+
+            // Paychecks
+            monthPaychecks.forEach(p => {
+              if (p.date.getDate() === day) {
+                events.push({ type: 'income', label: p.label, amount: p.amount, color: 'emerald' });
+              }
+            });
+
+            // Bills
+            bills.forEach(b => {
+              if (b.dueDay === day) {
+                events.push({ type: 'bill', label: b.name, amount: b.amount, color: 'rose' });
+              }
+            });
+
+            // Debts
+            debts.forEach(d => {
+              if (d.dueDay === day) {
+                events.push({ type: 'debt', label: d.name, amount: d.minPayment + d.extraPayment, color: 'orange' });
+              }
+            });
+
+            // Subscriptions
+            subscriptions.filter(s => s.active).forEach(s => {
+              if (s.nextBillDate) {
+                const subDate = new Date(s.nextBillDate);
+                if (subDate.getDate() === day && subDate.getMonth() === viewMonth && subDate.getFullYear() === viewYear) {
+                  events.push({ type: 'sub', label: s.name, amount: s.amount, color: 'blue' });
+                }
+              }
+            });
+
+            // Expenses
+            manualExpenses.forEach(e => {
+              if (e.date === dateStr) {
+                events.push({ type: 'expense', label: e.description, amount: e.amount, color: 'purple' });
+              }
+            });
+
+            return events;
+          };
+
+          const totalIncome = monthPaychecks.reduce((s, p) => s + p.amount, 0);
+          const totalBills = bills.reduce((s, b) => s + b.amount, 0);
+          const totalDebts = debts.reduce((s, d) => s + d.minPayment + d.extraPayment, 0);
+          const netMonth = totalIncome - totalBills - totalDebts;
+
+          return (
+            <>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')}`}>Financial Calendar</h2>
+                <div className={`text-sm font-semibold ${dm('text-gray-600', 'text-gray-400')}`}>{monthLabel(viewYear, viewMonth)}</div>
+              </div>
+
+              {/* Month Summary */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Expected Income</p>
+                  <p className={`text-lg font-bold text-emerald-600`}>{fmt(totalIncome)}</p>
+                </Card>
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Bills Due</p>
+                  <p className={`text-lg font-bold text-rose-600`}>{fmt(totalBills)}</p>
+                </Card>
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Debt Payments</p>
+                  <p className={`text-lg font-bold text-orange-600`}>{fmt(totalDebts)}</p>
+                </Card>
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>Net Expected</p>
+                  <p className={`text-lg font-bold ${netMonth >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmt(netMonth)}</p>
+                </Card>
+              </div>
+
+              {/* Calendar Grid */}
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                <div className="mb-4">
+                  <div className="grid grid-cols-7 gap-1 mb-3">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                      <div key={d} className={`text-center text-xs font-bold ${dm('text-gray-500', 'text-gray-400')} py-2`}>{d}</div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {days.map((day, idx) => {
+                      const events = day ? getEventsForDay(day) : [];
+                      const isToday = day && day === today.getDate() && isCurrentMonth;
+                      return (
+                        <button key={idx} onClick={() => day && setCalendarSelectedDay(day)}
+                          className={`aspect-square p-2 rounded-lg border-2 transition text-xs font-semibold flex flex-col items-center justify-center ${
+                            !day ? '' :
+                            isToday ? `${dm('bg-indigo-100 border-indigo-500 text-indigo-700', 'bg-indigo-900/40 border-indigo-600 text-indigo-300')}` :
+                            calendarSelectedDay === day ? `${dm('bg-indigo-50 border-indigo-400 text-indigo-600', 'bg-slate-700 border-indigo-500 text-indigo-300')}` :
+                            `${dm('bg-white border-gray-200 text-gray-700 hover:bg-gray-50', 'bg-slate-800 border-slate-700 text-gray-300 hover:bg-slate-700')}`
+                          }`}>
+                          {day && <span className="mb-1">{day}</span>}
+                          {events.length > 0 && (
+                            <div className="flex gap-0.5">
+                              {events.slice(0, 3).map((e, i) => {
+                                const colorMap = { emerald: 'bg-emerald-500', rose: 'bg-rose-500', orange: 'bg-orange-500', blue: 'bg-blue-500', purple: 'bg-purple-500' };
+                                return <div key={i} className={`w-1 h-1 rounded-full ${colorMap[e.color]}`} />;
+                              })}
+                              {events.length > 3 && <span className="text-[8px]">+{events.length - 3}</span>}
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </Card>
+
+              {/* Day Detail Panel */}
+              {calendarSelectedDay && (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')}`}>
+                      {new Date(viewYear, viewMonth, calendarSelectedDay).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                    </h3>
+                    <button onClick={() => setCalendarSelectedDay(null)} className={`text-gray-400 hover:text-gray-600`}><X size={16} /></button>
+                  </div>
+                  {(() => {
+                    const dayEvents = getEventsForDay(calendarSelectedDay);
+                    if (dayEvents.length === 0) {
+                      return <p className={`text-sm ${dm('text-gray-500', 'text-gray-400')}`}>No financial events this day.</p>;
+                    }
+                    const colorMap = { emerald: 'text-emerald-600', rose: 'text-rose-600', orange: 'text-orange-600', blue: 'text-blue-600', purple: 'text-purple-600' };
+                    const typeEmoji = { income: '💰', bill: '📝', debt: '💳', sub: '🔄', expense: '💸' };
+                    return (
+                      <div className="space-y-2">
+                        {dayEvents.map((e, i) => (
+                          <div key={i} className={`flex items-center justify-between p-2 rounded-lg ${dm('bg-gray-50', 'bg-slate-700/50')}`}>
+                            <div className="flex items-center gap-2">
+                              <span>{typeEmoji[e.type]}</span>
+                              <div>
+                                <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')}`}>{e.label}</p>
+                                <p className={`text-xs capitalize ${dm('text-gray-500', 'text-gray-400')}`}>{e.type}</p>
+                              </div>
+                            </div>
+                            <p className={`text-sm font-bold ${colorMap[e.color]}`}>{fmt(e.amount)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </Card>
               )}
             </>
