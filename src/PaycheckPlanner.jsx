@@ -50,7 +50,7 @@ const TABS = [
   { id: "networth", label: "Net Worth", icon: Landmark },
   { id: "paycalc", label: "Pay Calc", icon: Calculator },
   { id: "health", label: "Health", icon: Heart },
-  { id: "flow", label: "Flow", icon: GitBranch },
+  { id: "flow", label: "Cash Flow", icon: GitBranch },
   { id: "subscriptions", label: "Subs", icon: Repeat },
   { id: "insights", label: "Insights", icon: Sparkles },
   { id: "wishlist", label: "Wishlist", icon: Star },
@@ -459,6 +459,9 @@ export default function PaycheckPlanner() {
   // ═══════════════════════════════════════════════════════════════════════
   const [globalSearch, setGlobalSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+  const [cashFlowRange, setCashFlowRange] = useState(90);
+  const [cashFlowStartBal, setCashFlowStartBal] = useState(init("cashFlowStartBal", 0));
+  const [editingStartBal, setEditingStartBal] = useState(false);
 
   // ─── Auto-save to localStorage ───
   useEffect(() => {
@@ -469,7 +472,7 @@ export default function PaycheckPlanner() {
         customCategories, categoryBudgets, darkMode, activeTheme,
         assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
         payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
-        wishlist, expenseTemplates, debtStrategy
+        wishlist, expenseTemplates, debtStrategy, cashFlowStartBal
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) { /* storage full or unavailable — silent fail */ }
@@ -478,7 +481,7 @@ export default function PaycheckPlanner() {
     customCategories, categoryBudgets, darkMode, activeTheme,
     assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
     payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
-    wishlist, expenseTemplates, debtStrategy]);
+    wishlist, expenseTemplates, debtStrategy, cashFlowStartBal]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // DERIVED DATA for the viewed month
@@ -804,7 +807,7 @@ export default function PaycheckPlanner() {
       customCategories, categoryBudgets, darkMode, activeTheme,
       assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
       payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
-      wishlist, expenseTemplates, debtStrategy
+      wishlist, expenseTemplates, debtStrategy, cashFlowStartBal
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -850,6 +853,7 @@ export default function PaycheckPlanner() {
         if (data.wishlist) setWishlist(data.wishlist);
         if (data.expenseTemplates) setExpenseTemplates(data.expenseTemplates);
         if (data.debtStrategy) setDebtStrategy(data.debtStrategy);
+        if (data.cashFlowStartBal !== undefined) setCashFlowStartBal(data.cashFlowStartBal);
         alert('Data imported successfully!');
       } catch (error) {
         alert('Error importing data: ' + error.message);
@@ -4138,13 +4142,213 @@ export default function PaycheckPlanner() {
           </>
         )}
 
-        {/* ═══════ MONEY FLOW TAB ═══════ */}
+        {/* ═══════ CASH FLOW TAB ═══════ */}
         {tab === "flow" && (
           <>
             <div className="flex items-center justify-between">
-              <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')}`}>Money Flow — {monthLabel(viewYear, viewMonth)}</h2>
+              <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')}`}>Cash Flow Projection</h2>
+              <div className="flex items-center gap-1.5">
+                {[30, 60, 90].map(d => (
+                  <button key={d} onClick={() => setCashFlowRange(d)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${cashFlowRange === d ? dm('bg-indigo-100 text-indigo-700', 'bg-indigo-900/40 text-indigo-300') : dm('bg-gray-100 text-gray-500 hover:bg-gray-200', 'bg-slate-700 text-gray-400 hover:bg-slate-600')}`}>
+                    {d}d
+                  </button>
+                ))}
+              </div>
             </div>
 
+            {/* Starting Balance */}
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Starting Balance (today)</h3>
+                  <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>Enter your current checking/cash balance for accurate projections</p>
+                </div>
+                {editingStartBal ? (
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-sm ${dm('text-gray-400', 'text-gray-500')}`}>$</span>
+                      <input type="number" autoFocus value={cashFlowStartBal || ''} onChange={(e) => setCashFlowStartBal(+e.target.value || 0)}
+                        className={`w-28 pl-6 pr-2 py-1.5 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                    </div>
+                    <button onClick={() => setEditingStartBal(false)} className="text-indigo-600 hover:text-indigo-700"><Check size={16} /></button>
+                  </div>
+                ) : (
+                  <button onClick={() => setEditingStartBal(true)} className={`text-lg font-bold ${dm('text-gray-900', 'text-white')} hover:opacity-70 transition`}>
+                    {fmt(cashFlowStartBal)}
+                  </button>
+                )}
+              </div>
+            </Card>
+
+            {/* Projected Cash Flow Chart */}
+            {(() => {
+              const startDate = new Date();
+              startDate.setHours(0, 0, 0, 0);
+              const days = cashFlowRange;
+              const events = [];
+
+              // Generate all income events for the range
+              for (let d = 0; d < days; d++) {
+                const date = new Date(startDate);
+                date.setDate(date.getDate() + d);
+                const y = date.getFullYear();
+                const m = date.getMonth();
+                const dayOfMonth = date.getDate();
+                const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`;
+
+                // Paychecks
+                incomeSources.forEach(src => {
+                  const payDates = generatePayDates(src, y, m);
+                  payDates.forEach(pd => {
+                    if (pd.getFullYear() === y && pd.getMonth() === m && pd.getDate() === dayOfMonth) {
+                      events.push({ date: dateStr, day: d, amount: src.amount, type: 'income', label: src.name });
+                    }
+                  });
+                });
+
+                // Bills
+                bills.forEach(b => {
+                  const dueDay = Math.min(b.dueDay, new Date(y, m + 1, 0).getDate());
+                  if (dayOfMonth === dueDay) {
+                    events.push({ date: dateStr, day: d, amount: -b.amount, type: 'bill', label: b.name });
+                  }
+                });
+
+                // Debt payments
+                debts.forEach(dt => {
+                  const dueDay = Math.min(dt.dueDay || 1, new Date(y, m + 1, 0).getDate());
+                  if (dayOfMonth === dueDay) {
+                    events.push({ date: dateStr, day: d, amount: -(dt.minPayment + dt.extraPayment), type: 'debt', label: dt.name });
+                  }
+                });
+
+                // Savings contributions (assume 1st of month)
+                if (dayOfMonth === 1) {
+                  goals.forEach(g => {
+                    if (g.monthlyContribution > 0) {
+                      events.push({ date: dateStr, day: d, amount: -g.monthlyContribution, type: 'savings', label: g.name });
+                    }
+                  });
+                }
+
+                // Subscriptions
+                (subscriptions || []).filter(s => s && s.active).forEach(sub => {
+                  const nextDate = sub.nextBillDate ? new Date(sub.nextBillDate + 'T12:00:00') : null;
+                  if (nextDate) {
+                    const interval = sub.frequency === 'yearly' ? 365 : sub.frequency === 'quarterly' ? 91 : sub.frequency === 'weekly' ? 7 : 30;
+                    let cursor = new Date(nextDate);
+                    while (cursor < startDate) cursor.setDate(cursor.getDate() + interval);
+                    if (cursor.getFullYear() === y && cursor.getMonth() === m && cursor.getDate() === dayOfMonth) {
+                      events.push({ date: dateStr, day: d, amount: -sub.amount, type: 'sub', label: sub.name });
+                    }
+                  }
+                });
+              }
+
+              // Build daily balance data
+              const chartData = [];
+              let runningBal = cashFlowStartBal;
+              let lowestBal = cashFlowStartBal;
+              let lowestDay = '';
+              let totalIn = 0;
+              let totalOut = 0;
+
+              for (let d = 0; d < days; d++) {
+                const date = new Date(startDate);
+                date.setDate(date.getDate() + d);
+                const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                const dayLabel = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+                const dayEvents = events.filter(e => e.day === d);
+                let dayIn = 0, dayOut = 0;
+                dayEvents.forEach(e => {
+                  if (e.amount > 0) dayIn += e.amount;
+                  else dayOut += Math.abs(e.amount);
+                });
+
+                runningBal += dayIn - dayOut;
+                totalIn += dayIn;
+                totalOut += dayOut;
+
+                if (runningBal < lowestBal) { lowestBal = runningBal; lowestDay = dayLabel; }
+
+                chartData.push({
+                  date: dayLabel,
+                  balance: Math.round(runningBal * 100) / 100,
+                  income: dayIn > 0 ? dayIn : undefined,
+                  expense: dayOut > 0 ? dayOut : undefined,
+                });
+              }
+
+              const endBal = runningBal;
+              const netChange = endBal - cashFlowStartBal;
+
+              return (
+                <>
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={TrendingUp} label="Total Income" value={fmt(totalIn)} sub={`Next ${days} days`} color="green" />
+                    <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={TrendingDown} label="Total Outflow" value={fmt(totalOut)} sub={`Next ${days} days`} color="rose" />
+                    <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={Target} label="Projected End" value={fmt(endBal)} sub={netChange >= 0 ? `+${fmt(netChange)}` : fmt(netChange)} color={netChange >= 0 ? "green" : "rose"} />
+                    <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={AlertCircle} label="Lowest Point" value={fmt(lowestBal)} sub={lowestDay || 'Today'} color={lowestBal < 0 ? "rose" : "amber"} />
+                  </div>
+
+                  {/* Balance Over Time Chart */}
+                  <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                    <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Projected Balance — Next {days} Days</h3>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <AreaChart data={chartData}>
+                        <defs>
+                          <linearGradient id="cfGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <XAxis dataKey="date" fontSize={10} tickLine={false} interval={Math.floor(days / 6)} />
+                        <YAxis tickFormatter={(v) => `$${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v}`} fontSize={10} tickLine={false} />
+                        <Tooltip formatter={(v, name) => [fmt(v), name === 'balance' ? 'Balance' : name === 'income' ? 'Income' : 'Expense']} />
+                        <Area type="monotone" dataKey="balance" stroke="#6366f1" fill="url(#cfGrad)" strokeWidth={2} dot={false} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                    {lowestBal < 0 && (
+                      <div className={`mt-3 p-3 rounded-lg ${dm('bg-rose-50 border border-rose-200', 'bg-rose-950/30 border border-rose-800/30')}`}>
+                        <p className={`text-xs font-semibold ${dm('text-rose-700', 'text-rose-400')}`}>⚠️ Warning: Balance goes negative around {lowestDay}</p>
+                        <p className={`text-[10px] ${dm('text-rose-500', 'text-rose-500')}`}>You may need to adjust spending or move money before that date.</p>
+                      </div>
+                    )}
+                  </Card>
+
+                  {/* Upcoming Events List */}
+                  <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                    <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Upcoming Events (Next 30 Days)</h3>
+                    {events.filter(e => e.day < 30).length === 0 ? (
+                      <p className={`text-sm text-center py-4 ${dm('text-gray-400', 'text-gray-500')}`}>No scheduled events. Add income, bills, or debts to see projections.</p>
+                    ) : (
+                      <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                        {events.filter(e => e.day < 30).sort((a, b) => a.day - b.day).map((e, i) => (
+                          <div key={i} className={`flex items-center justify-between py-2 px-3 rounded-lg ${dm('bg-gray-50', 'bg-slate-700/30')}`}>
+                            <div className="flex items-center gap-3">
+                              <span className={`w-2 h-2 rounded-full ${e.amount > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                              <div>
+                                <p className={`text-sm font-medium ${dm('text-gray-700', 'text-gray-300')}`}>{e.label}</p>
+                                <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>{e.date} · {e.type}</p>
+                              </div>
+                            </div>
+                            <span className={`text-sm font-semibold ${e.amount > 0 ? 'text-emerald-500' : dm('text-gray-700', 'text-gray-300')}`}>
+                              {e.amount > 0 ? '+' : '-'}{fmt(Math.abs(e.amount))}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+                </>
+              );
+            })()}
+
+            {/* Money Flow Sankey (existing) */}
+            <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mt-2`}>Monthly Money Flow — {monthLabel(viewYear, viewMonth)}</h3>
             {monthlyIncome === 0 && totalAllExpenses === 0 ? (
               <EmptyState icon={GitBranch} message="Add income and expenses to see your money flow" />
             ) : (
