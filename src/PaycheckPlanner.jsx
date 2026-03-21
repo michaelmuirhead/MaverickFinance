@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { DollarSign, TrendingUp, TrendingDown, Landmark, CreditCard, PiggyBank, Calendar, Plus, Trash2, Check, X, AlertCircle, Target, Wallet, Bell, ChevronLeft, ChevronRight, BarChart3, Zap, ClipboardList, Copy, CheckCircle, Circle, GripVertical, Sun, Moon, Settings, Download, Upload, StickyNote, Calculator, Clock, Heart, Shield, Search, ChevronDown, Minus, ArrowDownCircle, ArrowUpCircle, GitBranch, Repeat, Eye, Sparkles, CalendarDays } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Landmark, CreditCard, PiggyBank, Calendar, Plus, Trash2, Check, X, AlertCircle, Target, Wallet, Bell, ChevronLeft, ChevronRight, BarChart3, Zap, ClipboardList, Copy, CheckCircle, Circle, GripVertical, Sun, Moon, Settings, Download, Upload, StickyNote, Calculator, Clock, Heart, Shield, Search, ChevronDown, Minus, ArrowDownCircle, ArrowUpCircle, GitBranch, Repeat, Eye, Sparkles, CalendarDays, Star } from "lucide-react";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -53,6 +53,7 @@ const TABS = [
   { id: "flow", label: "Flow", icon: GitBranch },
   { id: "subscriptions", label: "Subs", icon: Repeat },
   { id: "insights", label: "Insights", icon: Sparkles },
+  { id: "wishlist", label: "Wishlist", icon: Star },
   { id: "yearly", label: "Year", icon: BarChart3 },
 ];
 
@@ -436,6 +437,24 @@ export default function PaycheckPlanner() {
   const [billCalendarView, setBillCalendarView] = useState(false);
 
   // ═══════════════════════════════════════════════════════════════════════
+  // WISHLIST / PLANNED PURCHASES
+  // ═══════════════════════════════════════════════════════════════════════
+  const [wishlist, setWishlist] = useState(init("wishlist", []));
+  const [wishDraft, setWishDraft] = useState(null);
+  const [editingWishId, setEditingWishId] = useState(null);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // EXPENSE TEMPLATES
+  // ═══════════════════════════════════════════════════════════════════════
+  const [expenseTemplates, setExpenseTemplates] = useState(init("expenseTemplates", []));
+  const [showTemplates, setShowTemplates] = useState(false);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // DEBT STRATEGY TOGGLE
+  // ═══════════════════════════════════════════════════════════════════════
+  const [debtStrategy, setDebtStrategy] = useState(init("debtStrategy", "avalanche"));
+
+  // ═══════════════════════════════════════════════════════════════════════
   // GLOBAL SEARCH
   // ═══════════════════════════════════════════════════════════════════════
   const [globalSearch, setGlobalSearch] = useState("");
@@ -449,7 +468,8 @@ export default function PaycheckPlanner() {
         plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth,
         customCategories, categoryBudgets, darkMode, activeTheme,
         assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
-        payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions
+        payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
+        wishlist, expenseTemplates, debtStrategy
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) { /* storage full or unavailable — silent fail */ }
@@ -457,7 +477,8 @@ export default function PaycheckPlanner() {
     plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth,
     customCategories, categoryBudgets, darkMode, activeTheme,
     assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
-    payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions]);
+    payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
+    wishlist, expenseTemplates, debtStrategy]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // DERIVED DATA for the viewed month
@@ -733,6 +754,7 @@ export default function PaycheckPlanner() {
     const simulate = (sortFn) => {
       let pool = debts.map(d => ({ ...d, bal: d.balance }));
       let months = 0, totalInterest = 0;
+      const payoffOrder = [];
       const totalMonthlyPayment = debts.reduce((s, d) => s + d.minPayment + d.extraPayment, 0);
       while (pool.some(d => d.bal > 0) && months < 600) {
         months++;
@@ -749,9 +771,12 @@ export default function PaycheckPlanner() {
           d.bal -= pay;
           extra -= pay;
           if (d.bal < 0.01) d.bal = 0;
+          if (d.bal === 0 && !payoffOrder.find(o => o.id === d.id)) {
+            payoffOrder.push({ id: d.id, name: d.name, paidOffMonth: months });
+          }
         });
       }
-      return { months, totalInterest, totalPaid: debts.reduce((s, d) => s + d.balance, 0) + totalInterest };
+      return { months, totalInterest, totalPaid: debts.reduce((s, d) => s + d.balance, 0) + totalInterest, payoffOrder };
     };
     const avalanche = simulate((a, b) => b.rate - a.rate);
     const snowball = simulate((a, b) => a.bal - b.bal);
@@ -778,7 +803,8 @@ export default function PaycheckPlanner() {
       plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth,
       customCategories, categoryBudgets, darkMode, activeTheme,
       assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
-      payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions
+      payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
+      wishlist, expenseTemplates, debtStrategy
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -821,9 +847,79 @@ export default function PaycheckPlanner() {
         if (data.savingsTransactions) setSavingsTransactions(data.savingsTransactions);
         if (data.plannerOrderByMonth) setPlannerOrderByMonth(data.plannerOrderByMonth);
         if (data.subscriptions) setSubscriptions(data.subscriptions);
+        if (data.wishlist) setWishlist(data.wishlist);
+        if (data.expenseTemplates) setExpenseTemplates(data.expenseTemplates);
+        if (data.debtStrategy) setDebtStrategy(data.debtStrategy);
         alert('Data imported successfully!');
       } catch (error) {
         alert('Error importing data: ' + error.message);
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
+  const handleCsvExport = () => {
+    const currentMonthExpenses = expensesByMonth[vKey] || [];
+    const csvRows = [
+      ['Date', 'Description', 'Merchant', 'Amount', 'Category'].join(',')
+    ];
+    currentMonthExpenses.forEach(exp => {
+      const row = [
+        exp.date || '',
+        `"${(exp.description || '').replace(/"/g, '""')}"`,
+        `"${(exp.merchant || '').replace(/"/g, '""')}"`,
+        exp.amount,
+        exp.category || ''
+      ].join(',');
+      csvRows.push(row);
+    });
+    const csv = csvRows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `expenses-${vKey}.csv`);
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCsvImport = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const csv = e.target?.result || '';
+        const lines = csv.split('\n').map(l => l.trim()).filter(l => l);
+        const expenses = [];
+        let hasHeader = false;
+        lines.forEach((line, idx) => {
+          if (idx === 0 && (line.toLowerCase().includes('date') || line.toLowerCase().includes('description'))) {
+            hasHeader = true;
+            return;
+          }
+          const parts = line.split(',').map(p => p.trim().replace(/^"(.*)"$/, '$1').replace(/""/g, '"'));
+          if (parts.length >= 2) {
+            const [date, desc, merchant, amountStr, category] = parts;
+            const amount = parseFloat(amountStr) || 0;
+            if (amount > 0 || desc) {
+              expenses.push({
+                id: uid(),
+                date: date || new Date().toISOString().split('T')[0],
+                description: desc,
+                merchant: merchant || '',
+                amount,
+                category: category || 'Other'
+              });
+            }
+          }
+        });
+        const key = vKey;
+        setExpensesByMonth({ ...expensesByMonth, [key]: [...(expensesByMonth[key] || []), ...expenses] });
+        alert(`Imported ${expenses.length} expense(s)`);
+      } catch (error) {
+        alert('Error importing CSV: ' + error.message);
       }
     };
     reader.readAsText(file);
@@ -1461,6 +1557,16 @@ export default function PaycheckPlanner() {
                   <Upload size={14} /> Import Data
                   <input type="file" accept=".json" onChange={handleImport} className="hidden" />
                 </label>
+                <div className={`border-t ${dm('border-gray-100', 'border-slate-700')} my-1 pt-1`}>
+                  <p className={`px-3 py-1 text-[10px] font-semibold uppercase ${dm('text-gray-400', 'text-gray-500')}`}>CSV</p>
+                  <button onClick={handleCsvExport} className={`w-full text-left px-3 py-1.5 rounded flex items-center gap-2 text-xs transition ${dm('hover:bg-gray-100 text-gray-700', 'hover:bg-slate-700 text-slate-100')}`}>
+                    <Download size={12} /> Export CSV (Current Month)
+                  </button>
+                  <label className={`w-full text-left px-3 py-1.5 rounded flex items-center gap-2 cursor-pointer text-xs transition ${dm('hover:bg-gray-100 text-gray-700', 'hover:bg-slate-700 text-slate-100')}`}>
+                    <Upload size={12} /> Import CSV
+                    <input type="file" accept=".csv" onChange={handleCsvImport} className="hidden" />
+                  </label>
+                </div>
                 <div className={`border-t ${dm('border-gray-100', 'border-slate-700')} my-1 pt-1`}>
                   <p className={`px-3 py-1 text-[10px] font-semibold uppercase ${dm('text-gray-400', 'text-gray-500')}`}>Themes</p>
                   {Object.entries(THEMES).map(([key, t]) => (
@@ -2567,12 +2673,45 @@ export default function PaycheckPlanner() {
         {tab === "expenses" && (
           <>
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-gray-900">Expenses — {monthLabel(viewYear, viewMonth)}</h2>
-              <button onClick={() => setExpDraft({ description: "", amount: "", category: "Other", date: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(Math.min(today.getDate(), new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0")}`, merchant: "" })}
-                className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-indigo-700 transition">
-                <Plus size={16} /> Add Expense
-              </button>
+              <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')}`}>Expenses — {monthLabel(viewYear, viewMonth)}</h2>
+              <div className="flex gap-2">
+                <button onClick={() => setShowTemplates(!showTemplates)} className={`flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-xl transition ${dm('bg-purple-100 text-purple-700 hover:bg-purple-200', 'bg-purple-900/30 text-purple-300 hover:bg-purple-900/50')}`}>
+                  <Copy size={16} /> Templates
+                </button>
+                <button onClick={() => setExpDraft({ description: "", amount: "", category: "Other", date: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(Math.min(today.getDate(), new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0")}`, merchant: "" })}
+                  className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-indigo-700 transition">
+                  <Plus size={16} /> Add Expense
+                </button>
+              </div>
             </div>
+
+            {/* Feature 3: Expense Templates Panel */}
+            {showTemplates && (
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="mb-4 border-purple-200">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Saved Templates</h3>
+                  <button onClick={() => setShowTemplates(false)} className="p-1 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                </div>
+                {expenseTemplates.length === 0 ? (
+                  <p className={`text-xs text-center py-3 ${dm('text-gray-500', 'text-gray-400')}`}>No templates saved yet. Save an expense as a template to get started.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {expenseTemplates.map(t => (
+                      <div key={t.id} className={`p-2.5 rounded-lg border ${dm('bg-purple-50 border-purple-200 hover:bg-purple-100', 'bg-purple-900/20 border-purple-700 hover:bg-purple-900/40')} transition cursor-pointer group`}>
+                        <div onClick={() => { setExpDraft({ ...t, id: null, date: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(Math.min(today.getDate(), new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0")}` }); setShowTemplates(false); }}>
+                          <p className={`text-xs font-medium ${dm('text-gray-800', 'text-gray-100')}`}>{t.description}</p>
+                          <p className={`text-xs ${dm('text-gray-600', 'text-gray-400')}`}>{t.merchant || t.category}</p>
+                          <p className={`text-xs font-bold mt-1 ${dm('text-purple-700', 'text-purple-300')}`}>{fmt(t.amount)}</p>
+                        </div>
+                        <button onClick={() => setExpenseTemplates(expenseTemplates.filter(x => x.id !== t.id))} className={`mt-1.5 w-full text-xs px-2 py-1 rounded ${dm('bg-rose-100 text-rose-600 hover:bg-rose-200', 'bg-rose-900/30 text-rose-400 hover:bg-rose-900/50')} opacity-0 group-hover:opacity-100 transition`}>
+                          Delete
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            )}
 
             {/* Feature 3: Manage Categories */}
             <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className={`border-l-4 border-indigo-500 mb-4`}>
@@ -2812,9 +2951,10 @@ export default function PaycheckPlanner() {
                       <span className="text-xs text-cyan-600 font-medium whitespace-nowrap">Credits goal</span>
                     </div>
                   )}
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 items-center">
                     <button onClick={() => { if (expDraft.description && expDraft.amount && (expDraft.category !== "Savings" || expDraft.goalId)) addExpense({ ...expDraft, amount: +expDraft.amount }); }}
                       className="flex-1 bg-indigo-600 text-white rounded-lg text-sm font-medium py-2 hover:bg-indigo-700 transition flex items-center justify-center gap-1"><Check size={14} /> Save</button>
+                    <button onClick={() => { if (expDraft.description && expDraft.amount) { setExpenseTemplates([...expenseTemplates, { ...expDraft, id: uid(), amount: +expDraft.amount }]); } }} className="text-xs text-purple-600 hover:text-purple-700 font-medium whitespace-nowrap">Save as Template</button>
                     <button onClick={() => setExpDraft(null)} className="px-4 text-gray-400 hover:text-gray-600"><X size={16} /></button>
                   </div>
                 </div>
@@ -3086,33 +3226,71 @@ export default function PaycheckPlanner() {
               </Card>
             )}
 
-            {/* Snowball vs Avalanche */}
+            {/* Snowball vs Avalanche - Interactive */}
             {debtStrategies && (
               <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
-                <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Snowball vs Avalanche</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className={`p-4 rounded-xl border-2 ${dm('border-cyan-200 bg-cyan-50/50', 'border-cyan-700 bg-cyan-950/20')}`}>
-                    <h4 className={`text-sm font-bold ${dm('text-cyan-700', 'text-cyan-300')} mb-2`}>Avalanche <span className="text-xs font-normal">(highest rate first)</span></h4>
-                    <div className="space-y-1.5 text-xs">
-                      <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Payoff time</span><span className={`font-bold ${dm('text-gray-900', 'text-white')}`}>{Math.floor(debtStrategies.avalanche.months / 12)}y {debtStrategies.avalanche.months % 12}m</span></div>
-                      <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Total interest</span><span className="font-bold text-rose-500">{fmt(debtStrategies.avalanche.totalInterest)}</span></div>
-                      <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Total paid</span><span className={`font-bold ${dm('text-gray-900', 'text-white')}`}>{fmt(debtStrategies.avalanche.totalPaid)}</span></div>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Payoff Strategy</h3>
+                    <div className="flex gap-2">
+                      <button onClick={() => setDebtStrategy('avalanche')} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${debtStrategy === 'avalanche' ? dm('bg-cyan-100 text-cyan-700', 'bg-cyan-900/40 text-cyan-300') : dm('bg-gray-100 text-gray-600 hover:bg-gray-200', 'bg-slate-700 text-gray-400 hover:bg-slate-600')}`}>
+                        Avalanche
+                      </button>
+                      <button onClick={() => setDebtStrategy('snowball')} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${debtStrategy === 'snowball' ? dm('bg-amber-100 text-amber-700', 'bg-amber-900/40 text-amber-300') : dm('bg-gray-100 text-gray-600 hover:bg-gray-200', 'bg-slate-700 text-gray-400 hover:bg-slate-600')}`}>
+                        Snowball
+                      </button>
                     </div>
                   </div>
-                  <div className={`p-4 rounded-xl border-2 ${dm('border-amber-200 bg-amber-50/50', 'border-amber-700 bg-amber-950/20')}`}>
-                    <h4 className={`text-sm font-bold ${dm('text-amber-700', 'text-amber-300')} mb-2`}>Snowball <span className="text-xs font-normal">(smallest balance first)</span></h4>
-                    <div className="space-y-1.5 text-xs">
-                      <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Payoff time</span><span className={`font-bold ${dm('text-gray-900', 'text-white')}`}>{Math.floor(debtStrategies.snowball.months / 12)}y {debtStrategies.snowball.months % 12}m</span></div>
-                      <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Total interest</span><span className="font-bold text-rose-500">{fmt(debtStrategies.snowball.totalInterest)}</span></div>
-                      <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Total paid</span><span className={`font-bold ${dm('text-gray-900', 'text-white')}`}>{fmt(debtStrategies.snowball.totalPaid)}</span></div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className={`p-4 rounded-xl border-2 ${debtStrategy === 'avalanche' ? dm('border-cyan-200 bg-cyan-50/50', 'border-cyan-700 bg-cyan-950/20') : dm('border-amber-200 bg-amber-50/50', 'border-amber-700 bg-amber-950/20')}`}>
+                      <h4 className={`text-sm font-bold mb-2 ${debtStrategy === 'avalanche' ? dm('text-cyan-700', 'text-cyan-300') : dm('text-amber-700', 'text-amber-300')}`}>
+                        {debtStrategy === 'avalanche' ? 'Avalanche' : 'Snowball'} <span className="text-xs font-normal">{debtStrategy === 'avalanche' ? '(highest rate first)' : '(smallest balance first)'}</span>
+                      </h4>
+                      <div className="space-y-1.5 text-xs">
+                        <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Payoff time</span><span className={`font-bold ${dm('text-gray-900', 'text-white')}`}>{Math.floor(debtStrategies[debtStrategy].months / 12)}y {debtStrategies[debtStrategy].months % 12}m</span></div>
+                        <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Total interest</span><span className="font-bold text-rose-500">{fmt(debtStrategies[debtStrategy].totalInterest)}</span></div>
+                        <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Total paid</span><span className={`font-bold ${dm('text-gray-900', 'text-white')}`}>{fmt(debtStrategies[debtStrategy].totalPaid)}</span></div>
+                      </div>
+                    </div>
+                    <div className={`p-4 rounded-xl border-2 ${debtStrategy === 'avalanche' ? dm('border-amber-200 bg-amber-50/50', 'border-amber-700 bg-amber-950/20') : dm('border-cyan-200 bg-cyan-50/50', 'border-cyan-700 bg-cyan-950/20')}`}>
+                      <h4 className={`text-sm font-bold mb-2 ${debtStrategy === 'avalanche' ? dm('text-amber-700', 'text-amber-300') : dm('text-cyan-700', 'text-cyan-300')}`}>
+                        {debtStrategy === 'avalanche' ? 'Snowball' : 'Avalanche'} <span className="text-xs font-normal">{debtStrategy === 'avalanche' ? '(smallest balance first)' : '(highest rate first)'}</span>
+                      </h4>
+                      <div className="space-y-1.5 text-xs">
+                        <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Payoff time</span><span className={`font-bold ${dm('text-gray-900', 'text-white')}`}>{Math.floor(debtStrategies[debtStrategy === 'avalanche' ? 'snowball' : 'avalanche'].months / 12)}y {debtStrategies[debtStrategy === 'avalanche' ? 'snowball' : 'avalanche'].months % 12}m</span></div>
+                        <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Total interest</span><span className="font-bold text-rose-500">{fmt(debtStrategies[debtStrategy === 'avalanche' ? 'snowball' : 'avalanche'].totalInterest)}</span></div>
+                        <div className="flex justify-between"><span className={dm('text-gray-600', 'text-gray-400')}>Total paid</span><span className={`font-bold ${dm('text-gray-900', 'text-white')}`}>{fmt(debtStrategies[debtStrategy === 'avalanche' ? 'snowball' : 'avalanche'].totalPaid)}</span></div>
+                      </div>
                     </div>
                   </div>
+
+                  <div className={`p-3 rounded-lg ${dm('bg-indigo-50 border border-indigo-200', 'bg-indigo-950/20 border border-indigo-700')}`}>
+                    <h5 className={`text-xs font-semibold ${dm('text-indigo-700', 'text-indigo-300')} mb-2`}>Payoff Order ({debtStrategy === 'avalanche' ? 'Highest Rate First' : 'Smallest Balance First'})</h5>
+                    <div className="space-y-1">
+                      {debtStrategies[debtStrategy].payoffOrder.length > 0 ? (
+                        debtStrategies[debtStrategy].payoffOrder.map((item, idx) => {
+                          const debt = debts.find(d => d.id === item.id);
+                          return debt ? (
+                            <div key={item.id} className="flex items-center gap-2 text-xs">
+                              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold ${dm('bg-indigo-600', 'bg-indigo-500')}`}>{idx + 1}</span>
+                              <span className={`flex-1 ${dm('text-gray-700', 'text-gray-200')}`}>{debt.name}</span>
+                              <span className={`font-medium ${dm('text-gray-600', 'text-gray-400')}`}>{fmt(debt.balance)} @ {debt.rate}%</span>
+                            </div>
+                          ) : null;
+                        })
+                      ) : (
+                        <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>No debts yet</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {debtStrategies.avalanche.totalInterest < debtStrategies.snowball.totalInterest && (
+                    <p className={`text-xs ${dm('text-cyan-600', 'text-cyan-400')} font-medium`}>
+                      💡 Avalanche saves you {fmt(debtStrategies.snowball.totalInterest - debtStrategies.avalanche.totalInterest)} in interest!
+                    </p>
+                  )}
                 </div>
-                {debtStrategies.avalanche.totalInterest < debtStrategies.snowball.totalInterest && (
-                  <p className={`text-xs mt-3 ${dm('text-cyan-600', 'text-cyan-400')} font-medium`}>
-                    Avalanche saves you {fmt(debtStrategies.snowball.totalInterest - debtStrategies.avalanche.totalInterest)} in interest!
-                  </p>
-                )}
               </Card>
             )}
 
@@ -4401,6 +4579,121 @@ export default function PaycheckPlanner() {
             </Card>
           </>
         )}
+
+        {/* ═══════ WISHLIST TAB ═══════ */}
+        {tab === "wishlist" && (() => {
+          const totalWishValue = wishlist.reduce((s, w) => s + (w.completed ? 0 : w.cost), 0);
+          const completedItems = wishlist.filter(w => w.completed);
+          const activeItems = wishlist.filter(w => !w.completed).sort((a, b) => {
+            const priorityOrder = { high: 0, medium: 1, low: 2 };
+            return (priorityOrder[a.priority] || 2) - (priorityOrder[b.priority] || 2);
+          });
+          const monthlyIncome = totalPaychecks > 0 ? totalPaychecks : 0;
+          return (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')}`}>Wishlist / Planned Purchases</h2>
+                <button onClick={() => setWishDraft({ name: "", cost: "", priority: "medium", targetDate: "", notes: "", link: "" })}
+                  className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-indigo-700 transition">
+                  <Plus size={16} /> Add Item
+                </button>
+              </div>
+
+              {wishDraft && (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="mb-4 border-indigo-200">
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <input placeholder="Item name" value={wishDraft.name} onChange={(e) => setWishDraft({ ...wishDraft, name: e.target.value })}
+                        className={`px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${dm('bg-white border-gray-200', 'bg-slate-700 border-slate-600 text-white')}`} />
+                      <div className="relative">
+                        <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm ${dm('text-gray-500', 'text-gray-400')}`}>$</span>
+                        <input type="number" placeholder="Estimated cost" value={wishDraft.cost} onChange={(e) => setWishDraft({ ...wishDraft, cost: e.target.value })}
+                          className={`w-full pl-7 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${dm('bg-white border-gray-200', 'bg-slate-700 border-slate-600 text-white')}`} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <select value={wishDraft.priority} onChange={(e) => setWishDraft({ ...wishDraft, priority: e.target.value })}
+                        className={`px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${dm('bg-white border-gray-200', 'bg-slate-700 border-slate-600 text-white')}`}>
+                        <option value="low">Low Priority</option>
+                        <option value="medium">Medium Priority</option>
+                        <option value="high">High Priority</option>
+                      </select>
+                      <input type="date" value={wishDraft.targetDate} onChange={(e) => setWishDraft({ ...wishDraft, targetDate: e.target.value })}
+                        className={`px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${dm('bg-white border-gray-200', 'bg-slate-700 border-slate-600 text-white')}`} />
+                      <input type="url" placeholder="Link/URL (optional)" value={wishDraft.link || ""} onChange={(e) => setWishDraft({ ...wishDraft, link: e.target.value })}
+                        className={`px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${dm('bg-white border-gray-200', 'bg-slate-700 border-slate-600 text-white')}`} />
+                    </div>
+                    <textarea placeholder="Notes (optional)" value={wishDraft.notes || ""} onChange={(e) => setWishDraft({ ...wishDraft, notes: e.target.value })}
+                      className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${dm('bg-white border-gray-200', 'bg-slate-700 border-slate-600 text-white')}`} rows="2" />
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={() => { if (wishDraft.name && wishDraft.cost) { setWishlist([...wishlist, { ...wishDraft, id: uid(), cost: +wishDraft.cost, completed: false }]); setWishDraft(null); } }}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center gap-1"><Check size={14} /> Save</button>
+                      <button onClick={() => setWishDraft(null)} className="px-4 py-2 text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                    </div>
+                  </div>
+                </Card>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+                <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={Star} label="Total Wishlist Value" value={fmt(totalWishValue)} sub={`${activeItems.length} active items`} color="purple" />
+                <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={Check} label="Completed Items" value={completedItems.length.toString()} sub={`${fmt(completedItems.reduce((s, w) => s + w.cost, 0))} purchased`} color="green" />
+                <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={Calendar} label="Affordable In" value={monthlyIncome > 0 ? `${Math.ceil(totalWishValue / monthlyIncome)} months` : "—"} sub="at current income" color="cyan" />
+              </div>
+
+              {activeItems.length === 0 ? (
+                <EmptyState icon={Star} message="No wishlist items yet. Add one to get started!" />
+              ) : (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Active Wishlist</h3>
+                  <div className="space-y-2">
+                    {activeItems.map((item) => {
+                      const priorityColors = { high: dm('bg-rose-100 text-rose-700', 'bg-rose-900/30 text-rose-300'), medium: dm('bg-amber-100 text-amber-700', 'bg-amber-900/30 text-amber-300'), low: dm('bg-blue-100 text-blue-700', 'bg-blue-900/30 text-blue-300') };
+                      return (
+                        <div key={item.id} className={`p-3 rounded-lg ${dm('hover:bg-gray-50', 'hover:bg-slate-700')} transition`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-100')}`}>{item.name}</h4>
+                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${priorityColors[item.priority]}`}>{item.priority}</span>
+                              </div>
+                              <div className={`text-xs ${dm('text-gray-600', 'text-gray-400')} space-y-0.5`}>
+                                <p>Cost: <span className="font-medium">{fmt(item.cost)}</span></p>
+                                {item.targetDate && <p>Target: {new Date(item.targetDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>}
+                                {item.notes && <p className={`italic ${dm('text-gray-500', 'text-gray-500')}`}>{item.notes}</p>}
+                                {item.link && <p><a href={item.link} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">View item →</a></p>}
+                              </div>
+                            </div>
+                            <div className="flex gap-1.5">
+                              <button onClick={() => setWishlist(wishlist.map(w => w.id === item.id ? { ...w, completed: true } : w))} className="px-2 py-1 text-xs bg-emerald-500 text-white rounded hover:bg-emerald-600 transition">Purchased</button>
+                              <button onClick={() => setWishlist(wishlist.filter(w => w.id !== item.id))} className="px-2 py-1 text-xs bg-rose-500 text-white rounded hover:bg-rose-600 transition"><Trash2 size={12} /></button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+              )}
+
+              {completedItems.length > 0 && (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="mt-4">
+                  <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Purchased Items ({completedItems.length})</h3>
+                  <div className="space-y-2">
+                    {completedItems.map((item) => (
+                      <div key={item.id} className={`p-3 rounded-lg flex items-center justify-between ${dm('bg-gray-50', 'bg-slate-700/30')}`}>
+                        <div className="flex-1">
+                          <p className={`text-sm font-medium line-through ${dm('text-gray-500', 'text-gray-400')}`}>{item.name}</p>
+                          <p className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>{fmt(item.cost)}</p>
+                        </div>
+                        <button onClick={() => setWishlist(wishlist.filter(w => w.id !== item.id))} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+            </>
+          );
+        })()}
 
         {/* ═══════ YEAR TAB ═══════ */}
         {tab === "yearly" && (() => {
