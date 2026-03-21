@@ -299,7 +299,18 @@ export default function PaycheckPlanner() {
 
   // ─── Theme system ───
   const [activeTheme, setActiveTheme] = useState(init("activeTheme", "default"));
-  const theme = THEMES[activeTheme] || THEMES.default;
+  const baseTheme = THEMES[activeTheme] || THEMES.default;
+  const theme = (activeTheme === 'pokemon' && darkMode) ? {
+    ...baseTheme,
+    name: "Master Ball",
+    emoji: "🟣",
+    bg: "bg-purple-900",
+    cardClass: "border-[3px] border-purple-600 bg-[#1e1233] rounded-xl shadow-[3px_3px_0px_0px_rgba(124,58,237,0.3)]",
+    headerClass: "bg-gradient-to-r from-purple-800 to-fuchsia-700 border-purple-500 border-b-[3px]",
+    textClass: "text-purple-200",
+    accentColor: "#d946ef",
+    borderStyle: "border-purple-600",
+  } : baseTheme;
   const isThemed = activeTheme !== "default";
   
   // ─── Onboarding wizard ───
@@ -2176,7 +2187,7 @@ export default function PaycheckPlanner() {
           border-top: 4px double #7f1d1d !important;
         }
       `}</style>}
-      {activeTheme === 'pokemon' && <style>{`
+      {activeTheme === 'pokemon' && !darkMode && <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800;900&display=swap');
         .min-h-screen {
           background: #dc2626 !important;
@@ -2226,7 +2237,43 @@ export default function PaycheckPlanner() {
         .grid > div:nth-child(6n+4) [class*="rounded-2xl"] { background: #eab308 !important; border-color: #a16207 !important; }
         .grid > div:nth-child(6n+5) [class*="rounded-2xl"] { background: #a855f7 !important; border-color: #7e22ce !important; }
         .grid > div:nth-child(6n+6) [class*="rounded-2xl"] { background: #06b6d4 !important; border-color: #0e7490 !important; }
-        .grid > div:nth-child(n) p, .grid > div:nth-child(n) span { color: #fff !important; }
+        /* White text only inside colored stat cards, not all grids */
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] p,
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] span,
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] h3,
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] svg,
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] p,
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] span,
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] h3,
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] svg,
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] p,
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] span,
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] h3,
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] svg,
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] p,
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] span,
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] h3,
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] svg,
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] p,
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] span,
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] h3,
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] svg,
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] p,
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] span,
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] h3,
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] svg { color: #fff !important; }
 
         /* Inner panels = light gray like Pokédex screen */
         [class*="bg-gray-50"], [class*="bg-gray-100"], [class*="bg-slate-"] {
@@ -2255,6 +2302,148 @@ export default function PaycheckPlanner() {
 
         /* Progress bars = rounder */
         [class*="rounded-full"] { border-radius: 9999px !important; }
+      `}</style>}
+
+      {/* Master Ball dark mode variant */}
+      {activeTheme === 'pokemon' && darkMode && <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800;900&display=swap');
+        .min-h-screen {
+          background: #2d1b4e !important;
+          background-image:
+            radial-gradient(circle at 50% 50%, transparent 45%, rgba(0,0,0,0.12) 45%, rgba(0,0,0,0.12) 55%, transparent 55%),
+            linear-gradient(180deg, #7b2d8e 0%, #6b21a8 48%, #1a1a2e 48%, #1a1a2e 52%, #2d1b4e 52%, #2d1b4e 100%) !important;
+          background-size: 100% 100% !important;
+          background-attachment: fixed !important;
+        }
+        *, ::before, ::after { border-color: rgba(168,85,247,0.3) !important; }
+        h1, h2, h3, h4, h5, h6 {
+          font-family: 'Poppins', Arial, sans-serif !important;
+          color: #e9d5ff !important;
+          font-weight: 800 !important;
+          text-transform: uppercase !important;
+          letter-spacing: 1px !important;
+          text-shadow: 0 0 12px rgba(168,85,247,0.4) !important;
+        }
+        header h1, header p, header span, header div { color: #fff !important; text-shadow: 0 0 15px rgba(217,70,239,0.5) !important; }
+        p, span, label, a, button, th, td, li, div {
+          font-family: 'Poppins', Arial, sans-serif !important;
+          color: #d8b4fe !important;
+          text-shadow: none !important;
+        }
+        input, select, textarea {
+          background: #1e1233 !important;
+          color: #e9d5ff !important;
+          border: 2px solid #7c3aed !important;
+          border-radius: 10px !important;
+          font-family: 'Poppins', sans-serif !important;
+        }
+        input::placeholder { color: rgba(216,180,254,0.35) !important; }
+        svg { color: #d8b4fe !important; filter: none !important; }
+
+        /* Cards = Master Ball dark panels */
+        [class*="rounded-2xl"], [class*="shadow-"] {
+          background: #1e1233 !important;
+          border: 3px solid #7c3aed !important;
+          border-radius: 14px !important;
+          box-shadow: 3px 3px 0px rgba(124,58,237,0.3), 0 0 15px rgba(168,85,247,0.15) !important;
+        }
+
+        /* Stat cards cycle through purple/magenta type colors */
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] { background: #7c3aed !important; border-color: #6d28d9 !important; }
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] { background: #d946ef !important; border-color: #c026d3 !important; }
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] { background: #8b5cf6 !important; border-color: #7c3aed !important; }
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] { background: #ec4899 !important; border-color: #db2777 !important; }
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] { background: #6366f1 !important; border-color: #4f46e5 !important; }
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] { background: #a855f7 !important; border-color: #9333ea !important; }
+        /* White text inside colored stat cards */
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] p,
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] span,
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] h3,
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] svg,
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] p,
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] span,
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] h3,
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] svg,
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] p,
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] span,
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] h3,
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] svg,
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] p,
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] span,
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] h3,
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] svg,
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] p,
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] span,
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] h3,
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] svg,
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] p,
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] span,
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] h3,
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] svg { color: #fff !important; }
+
+        /* Inner panels = deep purple */
+        [class*="bg-gray-50"], [class*="bg-gray-100"], [class*="bg-slate-"], [class*="bg-white"] {
+          background: #150d27 !important;
+          border: 2px solid #6d28d9 !important;
+          border-radius: 10px !important;
+        }
+
+        /* Buttons = Master Ball magenta */
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: linear-gradient(135deg, #9333ea, #d946ef) !important;
+          border: 3px solid #1a1a2e !important;
+          border-radius: 25px !important;
+          font-weight: 700 !important;
+          text-transform: uppercase !important;
+          letter-spacing: 1px !important;
+          box-shadow: 2px 2px 0px rgba(0,0,0,0.3), 0 0 10px rgba(217,70,239,0.3) !important;
+        }
+        [class*="bg-indigo-600"] span, [class*="bg-indigo-600"] svg,
+        [class*="bg-indigo-700"] span, [class*="bg-indigo-700"] svg { color: #fff !important; }
+
+        /* Tab active = magenta */
+        [class*="border-b-2"][class*="border-indigo-600"] {
+          border-color: #d946ef !important;
+        }
+
+        /* Table styling */
+        table, thead, tbody, tr { background: transparent !important; border-color: rgba(124,58,237,0.3) !important; }
+        th { color: #c4b5fd !important; background: rgba(124,58,237,0.15) !important; }
+        td { color: #d8b4fe !important; }
+
+        /* Progress bars = rounder + purple glow */
+        [class*="rounded-full"] { border-radius: 9999px !important; }
+        [class*="bg-indigo-600"][class*="rounded-full"] {
+          background: linear-gradient(90deg, #9333ea, #d946ef) !important;
+          box-shadow: 0 0 8px rgba(217,70,239,0.4) !important;
+        }
+
+        /* Master Ball M insignia shimmer on header */
+        header::after {
+          content: 'M';
+          position: absolute;
+          top: 50%;
+          right: 120px;
+          transform: translateY(-50%);
+          font-family: 'Poppins', sans-serif;
+          font-size: 28px;
+          font-weight: 900;
+          color: rgba(217,70,239,0.25);
+          text-shadow: 0 0 20px rgba(217,70,239,0.3);
+          pointer-events: none;
+        }
       `}</style>}
       {/* Header */}
       <header className={`${isThemed ? theme.headerClass : dm('bg-white/80', 'bg-slate-900/80')} backdrop-blur-md ${isThemed ? '' : dm('border-gray-200', 'border-slate-700')} border-b sticky top-0 z-30`}>
