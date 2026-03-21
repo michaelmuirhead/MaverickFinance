@@ -47,6 +47,7 @@ const THEMES = {
   blueprint: { name: "Blueprint", emoji: "📐", bg: "bg-blue-950", cardClass: "border border-blue-300/25 bg-blue-950/80 shadow-none", headerClass: "bg-blue-950/95 border-blue-300/25", textClass: "text-blue-100", accentColor: "#60a5fa", fontFamily: "'Courier Prime', 'Courier New', monospace", borderStyle: "border-blue-300/20", specialEffect: "blueprint" },
   space: { name: "Space", emoji: "🚀", bg: "bg-gray-950", cardClass: "border border-violet-500/20 bg-gray-950/80 shadow-[0_0_20px_rgba(139,92,246,0.06)]", headerClass: "bg-gray-950/95 border-violet-500/20", textClass: "text-violet-200", accentColor: "#8b5cf6", fontFamily: "'Exo 2', 'Segoe UI', sans-serif", borderStyle: "border-violet-500/15", specialEffect: "space" },
   consul: { name: "Consul", emoji: "🏛️", bg: "bg-stone-100", cardClass: "border border-stone-400/40 bg-stone-100/90 shadow-md rounded-none", headerClass: "bg-red-900/95 border-stone-400/40", textClass: "text-stone-800", accentColor: "#7f1d1d", fontFamily: "'Cinzel', 'Trajan Pro', serif", borderStyle: "border-stone-400/30", specialEffect: "consul" },
+  pokemon: { name: "Pokémon", emoji: "⚡", bg: "bg-red-600", cardClass: "border-[3px] border-gray-800 bg-white rounded-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]", headerClass: "bg-red-600 border-gray-800 border-b-[3px]", textClass: "text-gray-900", accentColor: "#dc2626", fontFamily: "'Poppins', 'Arial', sans-serif", borderStyle: "border-gray-800", specialEffect: "pokemon" },
 };
 
 const TABS = [
@@ -2174,6 +2175,86 @@ export default function PaycheckPlanner() {
         .space-y-4 > div:first-child [class*="rounded-2xl"] {
           border-top: 4px double #7f1d1d !important;
         }
+      `}</style>}
+      {activeTheme === 'pokemon' && <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800;900&display=swap');
+        .min-h-screen {
+          background: #dc2626 !important;
+          background-image:
+            radial-gradient(circle at 50% 50%, transparent 45%, rgba(0,0,0,0.06) 45%, rgba(0,0,0,0.06) 55%, transparent 55%),
+            linear-gradient(180deg, #dc2626 0%, #dc2626 48%, #1f2937 48%, #1f2937 52%, #f5f5f4 52%, #f5f5f4 100%) !important;
+          background-size: 100% 100% !important;
+          background-attachment: fixed !important;
+        }
+        *, ::before, ::after { border-color: rgba(31,41,55,0.25) !important; }
+        h1, h2, h3, h4, h5, h6 {
+          font-family: 'Poppins', Arial, sans-serif !important;
+          color: #1f2937 !important;
+          font-weight: 800 !important;
+          text-transform: uppercase !important;
+          letter-spacing: 1px !important;
+          text-shadow: none !important;
+        }
+        header h1, header p, header span, header div { color: #fff !important; }
+        p, span, label, a, button, th, td, li, div {
+          font-family: 'Poppins', Arial, sans-serif !important;
+          color: #374151 !important;
+          text-shadow: none !important;
+        }
+        input, select, textarea {
+          background: #fff !important;
+          color: #1f2937 !important;
+          border: 2px solid #d1d5db !important;
+          border-radius: 10px !important;
+          font-family: 'Poppins', sans-serif !important;
+        }
+        input::placeholder { color: rgba(31,41,55,0.35) !important; }
+        svg { color: #1f2937 !important; filter: none !important; }
+
+        /* Cards = Pokédex panels */
+        [class*="rounded-2xl"], [class*="shadow-"] {
+          background: #fff !important;
+          border: 3px solid #1f2937 !important;
+          border-radius: 14px !important;
+          box-shadow: 3px 3px 0px rgba(0,0,0,0.25) !important;
+        }
+
+        /* Stat cards cycle through type colors */
+        .grid > div:nth-child(6n+1) [class*="rounded-2xl"] { background: #ef4444 !important; border-color: #b91c1c !important; }
+        .grid > div:nth-child(6n+2) [class*="rounded-2xl"] { background: #3b82f6 !important; border-color: #1d4ed8 !important; }
+        .grid > div:nth-child(6n+3) [class*="rounded-2xl"] { background: #22c55e !important; border-color: #15803d !important; }
+        .grid > div:nth-child(6n+4) [class*="rounded-2xl"] { background: #eab308 !important; border-color: #a16207 !important; }
+        .grid > div:nth-child(6n+5) [class*="rounded-2xl"] { background: #a855f7 !important; border-color: #7e22ce !important; }
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] { background: #06b6d4 !important; border-color: #0e7490 !important; }
+        .grid > div:nth-child(n) p, .grid > div:nth-child(n) span { color: #fff !important; }
+
+        /* Inner panels = light gray like Pokédex screen */
+        [class*="bg-gray-50"], [class*="bg-gray-100"], [class*="bg-slate-"] {
+          background: #f0fdf4 !important;
+          border: 2px solid #d1d5db !important;
+          border-radius: 10px !important;
+        }
+
+        /* Buttons = Pokéball red */
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: #dc2626 !important;
+          border: 3px solid #1f2937 !important;
+          border-radius: 25px !important;
+          font-weight: 700 !important;
+          text-transform: uppercase !important;
+          letter-spacing: 1px !important;
+          box-shadow: 2px 2px 0px rgba(0,0,0,0.2) !important;
+        }
+        [class*="bg-indigo-600"] span, [class*="bg-indigo-600"] svg,
+        [class*="bg-indigo-700"] span, [class*="bg-indigo-700"] svg { color: #fff !important; }
+
+        /* Tab active = red */
+        [class*="border-b-2"][class*="border-indigo-600"] {
+          border-color: #dc2626 !important;
+        }
+
+        /* Progress bars = rounder */
+        [class*="rounded-full"] { border-radius: 9999px !important; }
       `}</style>}
       {/* Header */}
       <header className={`${isThemed ? theme.headerClass : dm('bg-white/80', 'bg-slate-900/80')} backdrop-blur-md ${isThemed ? '' : dm('border-gray-200', 'border-slate-700')} border-b sticky top-0 z-30`}>
