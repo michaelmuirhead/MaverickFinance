@@ -1,6 +1,42 @@
 import { useState, useMemo, useEffect } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { DollarSign, TrendingUp, TrendingDown, Landmark, CreditCard, PiggyBank, Calendar, Plus, Trash2, Check, X, AlertCircle, Target, Wallet, Bell, ChevronLeft, ChevronRight, BarChart3, Zap, ClipboardList, Copy, CheckCircle, Circle, GripVertical, Sun, Moon, Settings, Download, Upload, StickyNote, Calculator, Clock, Heart, Shield, Search, ChevronDown, Minus, ArrowDownCircle, ArrowUpCircle, GitBranch, Repeat, Eye, Sparkles, CalendarDays, Star } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Landmark, CreditCard, PiggyBank, Calendar, Plus, Trash2, Check, X, AlertCircle, Target, Wallet, Bell, ChevronLeft, ChevronRight, BarChart3, Zap, ClipboardList, Copy, CheckCircle, Circle, GripVertical, Sun, Moon, Settings, Download, Upload, StickyNote, Calculator, Clock, Heart, Shield, Search, ChevronDown, Minus, ArrowDownCircle, ArrowUpCircle, GitBranch, Repeat, Eye, Sparkles, CalendarDays, Star, Cloud, LogIn, LogOut, RefreshCw } from "lucide-react";
+
+// ─── Firebase (optional cloud sync) ──────────────────────────────────────
+// To enable cloud sync: npm install firebase, then fill in your config from
+// Firebase Console → Project Settings → Your apps → Web app
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCW0hh0It77BPHUUuYxdQLVlKXEf52eVZo",
+  authDomain: "maverickfinance.firebaseapp.com",
+  projectId: "maverickfinance",
+  storageBucket: "maverickfinance.firebasestorage.app",
+  messagingSenderId: "1023161031744",
+  appId: "1:1023161031744:web:0d896f3cd445f378dcd3a5"
+};
+const firebaseEnabled = !!FIREBASE_CONFIG.apiKey;
+// Firebase modules loaded lazily via dynamic import — never blocks the artifact bundler
+const _fb = {};
+const getFb = async () => {
+  if (_fb.ready) return _fb;
+  if (!firebaseEnabled) return null;
+  try {
+    const app = await import(/* webpackIgnore: true */ "firebase/app");
+    const auth = await import(/* webpackIgnore: true */ "firebase/auth");
+    const fs = await import(/* webpackIgnore: true */ "firebase/firestore");
+    _fb.app = app.initializeApp(FIREBASE_CONFIG);
+    _fb.auth = auth.getAuth(_fb.app);
+    _fb.db = fs.getFirestore(_fb.app);
+    _fb.GoogleAuthProvider = auth.GoogleAuthProvider;
+    _fb.signInWithPopup = auth.signInWithPopup;
+    _fb.signOut = auth.signOut;
+    _fb.onAuthStateChanged = auth.onAuthStateChanged;
+    _fb.doc = fs.doc;
+    _fb.getDoc = fs.getDoc;
+    _fb.setDoc = fs.setDoc;
+    _fb.ready = true;
+    return _fb;
+  } catch (e) { console.warn("Firebase not available, using localStorage only"); return null; }
+};
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -292,7 +328,119 @@ export default function PaycheckPlanner() {
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
-  
+
+  // ─── Firebase Auth + Cloud Sync ───
+  const [fbUser, setFbUser] = useState(null);
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle | syncing | synced | error
+  const [lastSyncTime, setLastSyncTime] = useState(null);
+
+  useEffect(() => {
+    if (!firebaseEnabled) return;
+    let unsub = null;
+    getFb().then(fb => {
+      if (!fb) return;
+      unsub = fb.onAuthStateChanged(fb.auth, (user) => {
+        setFbUser(user);
+        if (user) loadFromCloud(user.uid);
+      });
+    });
+    return () => { if (unsub) unsub(); };
+  }, []);
+
+  const signInWithGoogle = async () => {
+    if (!firebaseEnabled) return;
+    try {
+      const fb = await getFb();
+      if (!fb) return;
+      await fb.signInWithPopup(fb.auth, new fb.GoogleAuthProvider());
+    } catch (e) { console.error("Sign-in failed:", e); }
+  };
+
+  const signOutUser = async () => {
+    if (!firebaseEnabled) return;
+    try {
+      const fb = await getFb();
+      if (!fb) return;
+      await fb.signOut(fb.auth);
+      setFbUser(null);
+      setSyncStatus("idle");
+    } catch (e) { console.error("Sign-out failed:", e); }
+  };
+
+  const saveToCloud = async (data) => {
+    if (!firebaseEnabled || !fbUser) return;
+    try {
+      const fb = await getFb();
+      if (!fb) return;
+      setSyncStatus("syncing");
+      await fb.setDoc(fb.doc(fb.db, "users", fbUser.uid), {
+        data: JSON.stringify(data),
+        updatedAt: new Date().toISOString(),
+        email: fbUser.email || ""
+      });
+      setSyncStatus("synced");
+      setLastSyncTime(new Date());
+    } catch (e) {
+      console.error("Cloud save failed:", e);
+      setSyncStatus("error");
+    }
+  };
+
+  const loadFromCloud = async (userId) => {
+    if (!firebaseEnabled) return;
+    try {
+      const fb = await getFb();
+      if (!fb) return;
+      setSyncStatus("syncing");
+      const snap = await fb.getDoc(fb.doc(fb.db, "users", userId));
+      if (snap.exists()) {
+        const cloudData = JSON.parse(snap.data().data);
+        if (cloudData.incomeSources) setIncomeSources(cloudData.incomeSources);
+        if (cloudData.bills) setBills(cloudData.bills);
+        if (cloudData.goals) setGoals(cloudData.goals);
+        if (cloudData.debts) setDebts(cloudData.debts);
+        if (cloudData.expensesByMonth) setExpensesByMonth(cloudData.expensesByMonth);
+        if (cloudData.extraChecks) setExtraChecks(cloudData.extraChecks);
+        if (cloudData.incomeOverrides) setIncomeOverrides(cloudData.incomeOverrides);
+        if (cloudData.plannerManualByMonth) setPlannerManualByMonth(cloudData.plannerManualByMonth);
+        if (cloudData.plannerDismissedByMonth) setPlannerDismissedByMonth(cloudData.plannerDismissedByMonth);
+        if (cloudData.plannerPaidByMonth) setPlannerPaidByMonth(cloudData.plannerPaidByMonth);
+        if (cloudData.plannerNotesByMonth) setPlannerNotesByMonth(cloudData.plannerNotesByMonth);
+        if (cloudData.customCategories) setCustomCategories(cloudData.customCategories);
+        if (cloudData.categoryBudgets) setCategoryBudgets(cloudData.categoryBudgets);
+        if (cloudData.darkMode !== undefined) setDarkMode(cloudData.darkMode);
+        if (cloudData.activeTheme) setActiveTheme(cloudData.activeTheme);
+        if (cloudData.assets) setAssets(cloudData.assets);
+        if (cloudData.liabilities) setLiabilities(cloudData.liabilities);
+        if (cloudData.netWorthHistory) setNetWorthHistory(cloudData.netWorthHistory);
+        if (cloudData.nwMilestones) setNwMilestones(cloudData.nwMilestones);
+        if (cloudData.balanceHistory) setBalanceHistory(cloudData.balanceHistory);
+        if (cloudData.payCalcEntries) setPayCalcEntries(cloudData.payCalcEntries);
+        if (cloudData.payCalcSettings) setPayCalcSettings(cloudData.payCalcSettings);
+        if (cloudData.savingsTransactions) setSavingsTransactions(cloudData.savingsTransactions);
+        if (cloudData.plannerOrderByMonth) setPlannerOrderByMonth(cloudData.plannerOrderByMonth);
+        if (cloudData.subscriptions) setSubscriptions(cloudData.subscriptions);
+        if (cloudData.wishlist) setWishlist(cloudData.wishlist);
+        if (cloudData.expenseTemplates) setExpenseTemplates(cloudData.expenseTemplates);
+        if (cloudData.debtStrategy) setDebtStrategy(cloudData.debtStrategy);
+        if (cloudData.cashFlowStartBal !== undefined) setCashFlowStartBal(cloudData.cashFlowStartBal);
+        if (cloudData.tabOrder) setTabOrder(cloudData.tabOrder);
+        if (cloudData.showBadges !== undefined) setShowBadges(cloudData.showBadges);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
+      }
+      setSyncStatus("synced");
+      setLastSyncTime(new Date());
+    } catch (e) {
+      console.error("Cloud load failed:", e);
+      setSyncStatus("error");
+    }
+  };
+
+  const forceSync = () => {
+    if (fbUser) loadFromCloud(fbUser.uid);
+  };
+
+
   // ─── Feature 5: Dark mode ───
   const [darkMode, setDarkMode] = useState(init("darkMode", false));
   const dm = (light, dark) => darkMode ? dark : light;
@@ -500,7 +648,7 @@ export default function PaycheckPlanner() {
     return [...ordered, ...newTabs];
   }, [tabOrder]);
 
-  // ─── Auto-save to localStorage ───
+  // ─── Auto-save to localStorage + cloud ───
   useEffect(() => {
     try {
       const data = {
@@ -512,6 +660,7 @@ export default function PaycheckPlanner() {
         wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      saveToCloud(data);
     } catch (e) { /* storage full or unavailable — silent fail */ }
   }, [incomeSources, bills, goals, debts, expensesByMonth, extraChecks, incomeOverrides,
     plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth,
@@ -2484,8 +2633,28 @@ export default function PaycheckPlanner() {
             </button>
             <button onClick={() => goMonth(1)} className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}><ChevronRight size={18} /></button>
           </div>
-          {/* Feature 5 + 4: Dark mode toggle and Settings */}
+          {/* Cloud Sync + Dark mode + Settings */}
           <div className="flex items-center gap-2">
+            {firebaseEnabled && (
+              fbUser ? (
+                <div className="flex items-center gap-1.5">
+                  <button onClick={forceSync} title={`Synced as ${fbUser.email}${lastSyncTime ? ' • Last: ' + lastSyncTime.toLocaleTimeString() : ''}`}
+                    className={`p-1.5 rounded-lg transition ${syncStatus === 'syncing' ? 'animate-pulse' : ''} ${dm('hover:bg-gray-100', 'hover:bg-slate-700')}`}>
+                    {syncStatus === 'error' ? <AlertCircle size={18} className="text-red-500" /> :
+                     syncStatus === 'syncing' ? <RefreshCw size={18} className={`${dm('text-indigo-500', 'text-indigo-400')} animate-spin`} /> :
+                     <Cloud size={18} className={`${dm('text-green-500', 'text-green-400')}`} />}
+                  </button>
+                  <button onClick={signOutUser} title="Sign out" className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}>
+                    <LogOut size={16} />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={signInWithGoogle} title="Sign in to sync across devices"
+                  className={`p-1.5 rounded-lg transition flex items-center gap-1.5 text-xs font-medium ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}>
+                  <Cloud size={18} /> <span className="hidden sm:inline">Sync</span>
+                </button>
+              )
+            )}
             <button onClick={() => setShowSearch(!showSearch)} className={`p-2 rounded-lg ${dm('hover:bg-gray-100', 'hover:bg-slate-800')} transition`}>
               <Search size={18} className={dm('text-gray-500', 'text-gray-400')} />
             </button>
