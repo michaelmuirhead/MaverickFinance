@@ -317,11 +317,7 @@ export default function PaycheckPlanner() {
   const [editingNoteText, setEditingNoteText] = useState("");
   
   // ─── Feature 7: Budget targets per category ───
-  const [categoryBudgets, setCategoryBudgets] = useState(init("categoryBudgets", {
-    "Food & Groceries": 500,
-    "Entertainment": 200,
-    "Transportation": 300,
-  }));
+  const [categoryBudgets, setCategoryBudgets] = useState(init("categoryBudgets", {}));
   const [budgetDraft, setBudgetDraft] = useState(null);
   const [editingBudgetCat, setEditingBudgetCat] = useState(null);
   const [tab, setTab] = useState("dashboard");
@@ -343,51 +339,31 @@ export default function PaycheckPlanner() {
   // ═══════════════════════════════════════════════════════════════════════
 
   // Income sources — define frequency + a reference pay date to anchor from
-  const [incomeSources, setIncomeSources] = useState(init("incomeSources", [
-    { id: uid(), name: "Primary Job", amount: 2560, frequency: "biweekly", referenceDate: "2026-03-07" },
-  ]));
+  const [incomeSources, setIncomeSources] = useState(init("incomeSources", []));
   const [incomeDraft, setIncomeDraft] = useState(null);
 
   // Recurring bills
-  const [bills, setBills] = useState(init("bills", [
-    { id: uid(), name: "Rent", amount: 1200, dueDay: 1, category: "Housing", autopay: true },
-    { id: uid(), name: "Electric", amount: 120, dueDay: 15, category: "Utilities", autopay: false },
-    { id: uid(), name: "Car Payment", amount: 350, dueDay: 5, category: "Transportation", autopay: true },
-    { id: uid(), name: "Internet", amount: 65, dueDay: 20, category: "Utilities", autopay: true },
-  ]));
+  const [bills, setBills] = useState(init("bills", []));
   const [billDraft, setBillDraft] = useState(null);
   const [editingBillId, setEditingBillId] = useState(null);
   const [editingDebtId, setEditingDebtId] = useState(null);
   const [editingGoalId, setEditingGoalId] = useState(null);
 
   // Savings goals (recurring monthly contribution)
-  const [goals, setGoals] = useState(init("goals", [
-    { id: uid(), name: "Emergency Fund", target: 10000, saved: 3500, monthlyContribution: 200, color: "#6366f1" },
-    { id: uid(), name: "Vacation", target: 3000, saved: 850, monthlyContribution: 150, color: "#22d3ee" },
-  ]));
+  const [goals, setGoals] = useState(init("goals", []));
   const [goalDraft, setGoalDraft] = useState(null);
   const [savingsTransactions, setSavingsTransactions] = useState(init("savingsTransactions", {}));
   const [savingsWithdrawDraft, setSavingsWithdrawDraft] = useState(null);
   const [expandedGoalId, setExpandedGoalId] = useState(null);
 
   // Debts (recurring payments)
-  const [debts, setDebts] = useState(init("debts", [
-    { id: uid(), name: "Student Loan", balance: 18500, rate: 5.5, minPayment: 220, extraPayment: 0, frequency: "monthly", dueDay: 15 },
-    { id: uid(), name: "Credit Card", balance: 3200, rate: 19.99, minPayment: 75, extraPayment: 50, frequency: "monthly", dueDay: 1 },
-  ]));
+  const [debts, setDebts] = useState(init("debts", []));
   const [debtDraft, setDebtDraft] = useState(null);
 
   // ═══════════════════════════════════════════════════════════════════════
   // MONTH-SPECIFIC DATA (one-off expenses stored per month key)
   // ═══════════════════════════════════════════════════════════════════════
-  const [expensesByMonth, setExpensesByMonth] = useState(init("expensesByMonth", {
-    "2026-03": [
-      { id: uid(), description: "Groceries", amount: 85, category: "Food & Groceries", date: "2026-03-15", merchant: "Kroger" },
-      { id: uid(), description: "Gas", amount: 45, category: "Transportation", date: "2026-03-14", merchant: "Shell" },
-      { id: uid(), description: "Netflix", amount: 15.99, category: "Subscriptions", date: "2026-03-01", merchant: "Netflix" },
-      { id: uid(), description: "Haircut", amount: 30, category: "Personal Care", date: "2026-03-10", merchant: "Great Clips" },
-    ],
-  }));
+  const [expensesByMonth, setExpensesByMonth] = useState(init("expensesByMonth", {}));
   const [expDraft, setExpDraft] = useState(null);
 
   // Quick-add floating expense
@@ -424,19 +400,12 @@ export default function PaycheckPlanner() {
   // ═══════════════════════════════════════════════════════════════════════
   // NET WORTH TRACKER
   // ═══════════════════════════════════════════════════════════════════════
-  const [assets, setAssets] = useState(init("assets", [
-    { id: uid(), name: "Checking Account", category: "Cash", balance: 2500 },
-    { id: uid(), name: "Savings Account", category: "Cash", balance: 8500 },
-    { id: uid(), name: "401(k)", category: "Investments", balance: 24000 },
-  ]));
+  const [assets, setAssets] = useState(init("assets", []));
   const [assetDraft, setAssetDraft] = useState(null);
   const [liabilities, setLiabilities] = useState(init("liabilities", []));
   const [liabilityDraft, setLiabilityDraft] = useState(null);
   const [netWorthHistory, setNetWorthHistory] = useState(init("netWorthHistory", []));
-  const [nwMilestones, setNwMilestones] = useState(init("nwMilestones", [
-    { id: uid(), label: "$50K", target: 50000 },
-    { id: uid(), label: "$100K", target: 100000 },
-  ]));
+  const [nwMilestones, setNwMilestones] = useState(init("nwMilestones", []));
   const [milestoneDraft, setMilestoneDraft] = useState(null);
   const [balanceHistory, setBalanceHistory] = useState(init("balanceHistory", {}));
 
@@ -454,10 +423,7 @@ export default function PaycheckPlanner() {
   // ═══════════════════════════════════════════════════════════════════════
   // SUBSCRIPTIONS TRACKER
   // ═══════════════════════════════════════════════════════════════════════
-  const [subscriptions, setSubscriptions] = useState(init("subscriptions", [
-    { id: uid(), name: "Netflix", amount: 15.99, frequency: "monthly", category: "Entertainment", nextBillDate: "2026-04-01", active: true },
-    { id: uid(), name: "Spotify", amount: 10.99, frequency: "monthly", category: "Entertainment", nextBillDate: "2026-04-05", active: true },
-  ]));
+  const [subscriptions, setSubscriptions] = useState(init("subscriptions", []));
   const [subDraft, setSubDraft] = useState(null);
   const [editingSubId, setEditingSubId] = useState(null);
   const addSub = (s) => { setSubscriptions([...subscriptions, { ...s, id: uid(), active: true }]); setSubDraft(null); setEditingSubId(null); };
@@ -4264,220 +4230,177 @@ export default function PaycheckPlanner() {
         })()}
 
         {/* ═══════ INSIGHTS TAB ═══════ */}
-        {tab === "insights" && (() => {
-          try {
-          const curExpenses = manualExpenses || [];
-          const curTotal = curExpenses.reduce((s, e) => s + (e.amount || 0), 0);
-          const prevKey = viewMonth === 0 ? monthKey(viewYear - 1, 11) : monthKey(viewYear, viewMonth - 1);
-          const prevExpenses = expensesByMonth[prevKey] || [];
-          const prevTotal = prevExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+        {tab === "insights" && (
+          <>
+            <div className="flex items-center justify-between">
+              <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')} flex items-center gap-2`}><Eye size={20} className="text-amber-500" /> Spending Insights</h2>
+              <span className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>{monthLabel(viewYear, viewMonth)}</span>
+            </div>
 
-          // Category breakdown comparison
-          const curByCat = {};
-          curExpenses.forEach(e => { if (e.category) curByCat[e.category] = (curByCat[e.category] || 0) + (e.amount || 0); });
-          const prevByCat = {};
-          prevExpenses.forEach(e => { if (e.category) prevByCat[e.category] = (prevByCat[e.category] || 0) + (e.amount || 0); });
-
-          const allCats = [...new Set([...Object.keys(curByCat), ...Object.keys(prevByCat)])];
-          const catInsights = allCats.map(cat => {
-            const cur = curByCat[cat] || 0;
-            const prev = prevByCat[cat] || 0;
-            const change = prev > 0 ? ((cur - prev) / prev * 100) : cur > 0 ? 100 : 0;
-            return { cat, cur, prev, change };
-          }).sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
-
-          // Budget adherence
-          const budgetInsights = Object.entries(categoryBudgets || {}).map(([cat, budget]) => {
-            const spent = curByCat[cat] || 0;
-            return { cat, budget, spent, pctUsed: budget > 0 ? Math.round(spent / budget * 100) : 0 };
-          }).sort((a, b) => b.pctUsed - a.pctUsed);
-
-          // Bills vs discretionary
-          const activeSubs = (subscriptions || []).filter(s => s && s.active);
-          const subsCost = activeSubs.reduce((sum, s) => sum + (s.frequency === 'monthly' ? s.amount : s.frequency === 'yearly' ? s.amount / 12 : s.frequency === 'weekly' ? s.amount * 4.33 : s.frequency === 'quarterly' ? s.amount / 3 : s.amount), 0);
-          const fixedBills = totalBills + debts.reduce((s, d) => s + (d.minPayment || 0) + (d.extraPayment || 0), 0) + subsCost;
-          const discretionary = curTotal;
-          const savingsTotal = goals.reduce((s, g) => s + (g.monthlyContribution || 0), 0);
-          const needsPct = monthlyIncome > 0 ? Math.round(fixedBills / monthlyIncome * 100) : 0;
-          const wantsPct = monthlyIncome > 0 ? Math.round(discretionary / monthlyIncome * 100) : 0;
-          const savesPct = monthlyIncome > 0 ? Math.round(savingsTotal / monthlyIncome * 100) : 0;
-
-          // Streaks
-          const monthsUnderBudget = (() => {
-            let streak = 0;
-            for (let i = 0; i < 12; i++) {
-              const m = viewMonth - i < 0 ? viewMonth - i + 12 : viewMonth - i;
-              const y = viewMonth - i < 0 ? viewYear - 1 : viewYear;
-              const mk = monthKey(y, m);
-              const me = (expensesByMonth[mk] || []).reduce((s, e) => s + (e.amount || 0), 0);
-              if (me + fixedBills <= monthlyIncome && monthlyIncome > 0) streak++;
-              else break;
-            }
-            return streak;
-          })();
-
-          return (
-            <>
-              <div className="flex items-center justify-between">
-                <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')} flex items-center gap-2`}><Sparkles size={20} className="text-amber-500" /> Spending Insights</h2>
-                <span className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>{monthLabel(viewYear, viewMonth)}</span>
-              </div>
-
-              {/* Monthly Report Card */}
-              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
-                <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Monthly Report Card</h3>
-                <div className="grid grid-cols-3 gap-3 mb-4">
-                  <div className={`text-center p-3 rounded-xl ${dm('bg-blue-50', 'bg-blue-950/30')}`}>
-                    <p className={`text-[10px] font-semibold uppercase ${dm('text-blue-600', 'text-blue-400')}`}>Needs</p>
-                    <p className={`text-xl font-bold ${dm('text-blue-700', 'text-blue-300')}`}>{needsPct}%</p>
-                    <p className={`text-[10px] ${needsPct <= 50 ? 'text-green-500' : 'text-amber-500'}`}>{needsPct <= 50 ? '✓ On target' : 'Above 50%'}</p>
-                  </div>
-                  <div className={`text-center p-3 rounded-xl ${dm('bg-purple-50', 'bg-purple-950/30')}`}>
-                    <p className={`text-[10px] font-semibold uppercase ${dm('text-purple-600', 'text-purple-400')}`}>Wants</p>
-                    <p className={`text-xl font-bold ${dm('text-purple-700', 'text-purple-300')}`}>{wantsPct}%</p>
-                    <p className={`text-[10px] ${wantsPct <= 30 ? 'text-green-500' : 'text-amber-500'}`}>{wantsPct <= 30 ? '✓ On target' : 'Above 30%'}</p>
-                  </div>
-                  <div className={`text-center p-3 rounded-xl ${dm('bg-emerald-50', 'bg-emerald-950/30')}`}>
-                    <p className={`text-[10px] font-semibold uppercase ${dm('text-emerald-600', 'text-emerald-400')}`}>Savings</p>
-                    <p className={`text-xl font-bold ${dm('text-emerald-700', 'text-emerald-300')}`}>{savesPct}%</p>
-                    <p className={`text-[10px] ${savesPct >= 20 ? 'text-green-500' : 'text-amber-500'}`}>{savesPct >= 20 ? '✓ On target' : 'Below 20%'}</p>
-                  </div>
-                </div>
-                <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')} text-center`}>Based on the 50/30/20 rule (Needs / Wants / Savings)</p>
-              </Card>
-
-              {/* Month-over-Month */}
-              {prevTotal > 0 && (
-                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
-                  <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Month-over-Month</h3>
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className={`flex-1 p-3 rounded-xl text-center ${curTotal <= prevTotal ? dm('bg-green-50', 'bg-green-950/30') : dm('bg-rose-50', 'bg-rose-950/30')}`}>
-                      <p className={`text-lg font-bold ${curTotal <= prevTotal ? 'text-green-600' : 'text-rose-600'}`}>
-                        {curTotal <= prevTotal ? '↓' : '↑'} {Math.abs(Math.round((curTotal - prevTotal) / prevTotal * 100))}%
-                      </p>
-                      <p className={`text-[10px] ${dm('text-gray-500', 'text-gray-400')}`}>{curTotal <= prevTotal ? `You spent ${fmt(prevTotal - curTotal)} less` : `You spent ${fmt(curTotal - prevTotal)} more`}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>Last month</p>
-                      <p className={`text-sm font-semibold ${dm('text-gray-600', 'text-gray-300')}`}>{fmt(prevTotal)}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className={`text-xs ${dm('text-gray-400', 'text-gray-500')}`}>This month</p>
-                      <p className={`text-sm font-semibold ${dm('text-gray-600', 'text-gray-300')}`}>{fmt(curTotal)}</p>
-                    </div>
-                  </div>
-                </Card>
-              )}
-
-              {/* Top Merchants */}
+            {/* Monthly Report Card — 50/30/20 */}
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Monthly Report Card</h3>
               {(() => {
-                const merchantMap = {};
-                curExpenses.forEach(e => {
-                  const m = (e.merchant || '').trim();
-                  if (m) { if (!merchantMap[m]) merchantMap[m] = { total: 0, count: 0 }; merchantMap[m].total += e.amount; merchantMap[m].count++; }
-                });
-                const topMerchants = Object.entries(merchantMap).sort((a, b) => b[1].total - a[1].total).slice(0, 8);
-                if (topMerchants.length === 0) return null;
-                const maxVal = topMerchants[0]?.[1].total || 1;
+                const subs = Array.isArray(subscriptions) ? subscriptions : [];
+                const subsCost = subs.filter(s => s && s.active).reduce((sum, s) => sum + (s.frequency === 'yearly' ? (s.amount || 0) / 12 : s.frequency === 'weekly' ? (s.amount || 0) * 4.33 : s.frequency === 'quarterly' ? (s.amount || 0) / 3 : (s.amount || 0)), 0);
+                const fixedCosts = totalBills + debts.reduce((s, d) => s + (d.minPayment || 0) + (d.extraPayment || 0), 0) + subsCost;
+                const discretionaryTotal = (manualExpenses || []).reduce((s, e) => s + (e.amount || 0), 0);
+                const savTotal = goals.reduce((s, g) => s + (g.monthlyContribution || 0), 0);
+                const np = monthlyIncome > 0 ? Math.round(fixedCosts / monthlyIncome * 100) : 0;
+                const wp = monthlyIncome > 0 ? Math.round(discretionaryTotal / monthlyIncome * 100) : 0;
+                const sp = monthlyIncome > 0 ? Math.round(savTotal / monthlyIncome * 100) : 0;
                 return (
-                  <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
-                    <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3 flex items-center gap-2`}><Target size={15} className="text-indigo-500" /> Top Merchants</h3>
-                    <div className="space-y-2.5">
-                      {topMerchants.map(([name, data], i) => (
-                        <div key={name}>
-                          <div className="flex items-center justify-between mb-1">
-                            <div className="flex items-center gap-2">
-                              <span className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center ${i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-gray-100 text-gray-600' : i === 2 ? 'bg-orange-100 text-orange-700' : dm('bg-gray-50 text-gray-500', 'bg-slate-700 text-gray-400')}`}>{i + 1}</span>
-                              <span className={`text-sm font-medium ${dm('text-gray-700', 'text-gray-300')}`}>{name}</span>
-                            </div>
-                            <div className="text-right">
-                              <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>{fmt(data.total)}</span>
-                              <span className={`text-[10px] ml-1.5 ${dm('text-gray-400', 'text-gray-500')}`}>{data.count} txn{data.count !== 1 ? 's' : ''}</span>
-                            </div>
-                          </div>
-                          <div className={`h-1.5 rounded-full ${dm('bg-gray-100', 'bg-slate-700')} overflow-hidden`}>
-                            <div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${(data.total / maxVal) * 100}%` }} />
-                          </div>
-                        </div>
-                      ))}
+                  <div>
+                    <div className="grid grid-cols-3 gap-3 mb-4">
+                      <div className={`text-center p-3 rounded-xl ${dm('bg-blue-50', 'bg-blue-950/30')}`}>
+                        <p className={`text-[10px] font-semibold uppercase ${dm('text-blue-600', 'text-blue-400')}`}>Needs</p>
+                        <p className={`text-xl font-bold ${dm('text-blue-700', 'text-blue-300')}`}>{np}%</p>
+                        <p className={`text-[10px] ${np <= 50 ? 'text-green-500' : 'text-amber-500'}`}>{np <= 50 ? '✓ On target' : 'Above 50%'}</p>
+                      </div>
+                      <div className={`text-center p-3 rounded-xl ${dm('bg-purple-50', 'bg-purple-950/30')}`}>
+                        <p className={`text-[10px] font-semibold uppercase ${dm('text-purple-600', 'text-purple-400')}`}>Wants</p>
+                        <p className={`text-xl font-bold ${dm('text-purple-700', 'text-purple-300')}`}>{wp}%</p>
+                        <p className={`text-[10px] ${wp <= 30 ? 'text-green-500' : 'text-amber-500'}`}>{wp <= 30 ? '✓ On target' : 'Above 30%'}</p>
+                      </div>
+                      <div className={`text-center p-3 rounded-xl ${dm('bg-emerald-50', 'bg-emerald-950/30')}`}>
+                        <p className={`text-[10px] font-semibold uppercase ${dm('text-emerald-600', 'text-emerald-400')}`}>Savings</p>
+                        <p className={`text-xl font-bold ${dm('text-emerald-700', 'text-emerald-300')}`}>{sp}%</p>
+                        <p className={`text-[10px] ${sp >= 20 ? 'text-green-500' : 'text-amber-500'}`}>{sp >= 20 ? '✓ On target' : 'Below 20%'}</p>
+                      </div>
                     </div>
-                  </Card>
+                    <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')} text-center`}>Based on the 50/30/20 rule (Needs / Wants / Savings)</p>
+                  </div>
                 );
               })()}
+            </Card>
 
-              {/* Category Trends */}
-              {catInsights.filter(c => c.change !== 0).length > 0 && (
+            {/* Top Merchants */}
+            {(() => {
+              const me = manualExpenses || [];
+              const merchantMap = {};
+              me.forEach(e => {
+                const m = (e.merchant || '').trim();
+                if (m) { if (!merchantMap[m]) merchantMap[m] = { total: 0, count: 0 }; merchantMap[m].total += (e.amount || 0); merchantMap[m].count++; }
+              });
+              const topMerchants = Object.entries(merchantMap).sort((a, b) => b[1].total - a[1].total).slice(0, 8);
+              if (topMerchants.length === 0) return null;
+              const maxVal = topMerchants[0][1].total || 1;
+              return (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3 flex items-center gap-2`}><Target size={15} className="text-indigo-500" /> Top Merchants</h3>
+                  <div className="space-y-2.5">
+                    {topMerchants.map(([name, data], i) => (
+                      <div key={name}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center ${i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-gray-100 text-gray-600' : i === 2 ? 'bg-orange-100 text-orange-700' : dm('bg-gray-50 text-gray-500', 'bg-slate-700 text-gray-400')}`}>{i + 1}</span>
+                            <span className={`text-sm font-medium ${dm('text-gray-700', 'text-gray-300')}`}>{name}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>{fmt(data.total)}</span>
+                            <span className={`text-[10px] ml-1.5 ${dm('text-gray-400', 'text-gray-500')}`}>{data.count} txn{data.count !== 1 ? 's' : ''}</span>
+                          </div>
+                        </div>
+                        <div className={`h-1.5 rounded-full ${dm('bg-gray-100', 'bg-slate-700')} overflow-hidden`}>
+                          <div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${(data.total / maxVal) * 100}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              );
+            })()}
+
+            {/* Category Trends vs Last Month */}
+            {(() => {
+              const prevMK = viewMonth === 0 ? monthKey(viewYear - 1, 11) : monthKey(viewYear, viewMonth - 1);
+              const prev = expensesByMonth[prevMK] || [];
+              if (prev.length === 0) return null;
+              const curByCat = {};
+              (manualExpenses || []).forEach(e => { if (e.category) curByCat[e.category] = (curByCat[e.category] || 0) + (e.amount || 0); });
+              const prevByCat = {};
+              prev.forEach(e => { if (e.category) prevByCat[e.category] = (prevByCat[e.category] || 0) + (e.amount || 0); });
+              const cats = [...new Set([...Object.keys(curByCat), ...Object.keys(prevByCat)])];
+              const insights = cats.map(cat => {
+                const c = curByCat[cat] || 0;
+                const p = prevByCat[cat] || 0;
+                const ch = p > 0 ? ((c - p) / p * 100) : c > 0 ? 100 : 0;
+                return { cat, c, p, ch };
+              }).filter(x => x.ch !== 0).sort((a, b) => Math.abs(b.ch) - Math.abs(a.ch)).slice(0, 6);
+              if (insights.length === 0) return null;
+              return (
                 <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                   <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Category Trends vs Last Month</h3>
                   <div className="space-y-2">
-                    {catInsights.filter(c => c.prev > 0 || c.cur > 0).slice(0, 6).map(c => (
-                      <div key={c.cat} className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('bg-gray-50', 'bg-slate-800/50')}`}>
+                    {insights.map(x => (
+                      <div key={x.cat} className={`flex items-center gap-3 py-2 px-3 rounded-lg ${dm('bg-gray-50', 'bg-slate-800/50')}`}>
                         <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-medium ${dm('text-gray-700', 'text-gray-300')}`}>{c.cat}</p>
-                          <p className="text-[10px] text-gray-400">{fmt(c.prev)} → {fmt(c.cur)}</p>
+                          <p className={`text-sm font-medium ${dm('text-gray-700', 'text-gray-300')}`}>{x.cat}</p>
+                          <p className="text-[10px] text-gray-400">{fmt(x.p)} → {fmt(x.c)}</p>
                         </div>
-                        <span className={`text-sm font-bold ${c.change <= 0 ? 'text-green-500' : 'text-rose-500'}`}>
-                          {c.change > 0 ? '+' : ''}{Math.round(c.change)}%
+                        <span className={`text-sm font-bold ${x.ch <= 0 ? 'text-green-500' : 'text-rose-500'}`}>
+                          {x.ch > 0 ? '+' : ''}{Math.round(x.ch)}%
                         </span>
                       </div>
                     ))}
                   </div>
                 </Card>
-              )}
+              );
+            })()}
 
-              {/* Budget Adherence */}
-              {budgetInsights.length > 0 && (
-                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
-                  <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Budget Adherence</h3>
-                  <div className="space-y-3">
-                    {budgetInsights.map(b => (
-                      <div key={b.cat}>
+            {/* Budget Adherence */}
+            {Object.keys(categoryBudgets || {}).length > 0 && (
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Budget Adherence</h3>
+                <div className="space-y-3">
+                  {Object.entries(categoryBudgets || {}).map(([cat, budget]) => {
+                    const spent = (manualExpenses || []).filter(e => e.category === cat).reduce((s, e) => s + (e.amount || 0), 0);
+                    const pctU = budget > 0 ? Math.round(spent / budget * 100) : 0;
+                    return (
+                      <div key={cat}>
                         <div className="flex items-center justify-between mb-1">
-                          <span className={`text-xs font-medium ${dm('text-gray-700', 'text-gray-300')}`}>{b.cat}</span>
-                          <span className={`text-xs font-semibold ${b.pctUsed <= 100 ? dm('text-gray-500', 'text-gray-400') : 'text-rose-500'}`}>{fmt(b.spent)} / {fmt(b.budget)}</span>
+                          <span className={`text-xs font-medium ${dm('text-gray-700', 'text-gray-300')}`}>{cat}</span>
+                          <span className={`text-xs font-semibold ${pctU <= 100 ? dm('text-gray-500', 'text-gray-400') : 'text-rose-500'}`}>{fmt(spent)} / {fmt(budget)}</span>
                         </div>
                         <div className={`h-2 rounded-full ${dm('bg-gray-100', 'bg-slate-700')} overflow-hidden`}>
-                          <div className={`h-full rounded-full transition-all ${b.pctUsed <= 75 ? 'bg-green-500' : b.pctUsed <= 100 ? 'bg-amber-500' : 'bg-rose-500'}`}
-                            style={{ width: `${Math.min(b.pctUsed, 100)}%` }} />
+                          <div className={`h-full rounded-full transition-all ${pctU <= 75 ? 'bg-green-500' : pctU <= 100 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                            style={{ width: `${Math.min(pctU, 100)}%` }} />
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </Card>
-              )}
-
-              {/* Streaks & Badges */}
-              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
-                <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Achievements</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className={`p-3 rounded-xl text-center ${monthsUnderBudget >= 1 ? dm('bg-amber-50', 'bg-amber-950/30') : dm('bg-gray-50', 'bg-slate-800/50')}`}>
-                    <p className="text-2xl mb-1">{monthsUnderBudget >= 3 ? '🔥' : monthsUnderBudget >= 1 ? '✨' : '🎯'}</p>
-                    <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{monthsUnderBudget} Month Streak</p>
-                    <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>Under budget</p>
-                  </div>
-                  <div className={`p-3 rounded-xl text-center ${goals.some(g => g.saved >= g.target) ? dm('bg-green-50', 'bg-green-950/30') : dm('bg-gray-50', 'bg-slate-800/50')}`}>
-                    <p className="text-2xl mb-1">{goals.filter(g => g.saved >= g.target).length > 0 ? '🏆' : '🎯'}</p>
-                    <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{goals.filter(g => g.saved >= g.target).length} Goals Hit</p>
-                    <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>Savings targets met</p>
-                  </div>
-                  <div className={`p-3 rounded-xl text-center ${dm('bg-indigo-50', 'bg-indigo-950/30')}`}>
-                    <p className="text-2xl mb-1">{(subscriptions || []).filter(s => s && !s.active).length > 0 ? '💪' : '📋'}</p>
-                    <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{(subscriptions || []).filter(s => s && !s.active).length} Subs Paused</p>
-                    <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>Saving {fmt((subscriptions || []).filter(s => s && !s.active).reduce((sum, s) => sum + (s.amount || 0), 0))}/mo</p>
-                  </div>
-                  <div className={`p-3 rounded-xl text-center ${dm('bg-purple-50', 'bg-purple-950/30')}`}>
-                    <p className="text-2xl mb-1">{savesPct >= 20 ? '💰' : '📈'}</p>
-                    <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{savesPct}% Savings Rate</p>
-                    <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>{savesPct >= 20 ? 'Excellent!' : 'Goal: 20%+'}</p>
-                  </div>
+                    );
+                  })}
                 </div>
               </Card>
-            </>
-          );
-          } catch(err) {
-            return <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}><p className={`text-sm ${dm('text-rose-600', 'text-rose-400')}`}>Unable to load insights. Try refreshing the page.</p></Card>;
-          }
-        })()}
+            )}
+
+            {/* Achievements */}
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Achievements</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className={`p-3 rounded-xl text-center ${dm('bg-amber-50', 'bg-amber-950/30')}`}>
+                  <p className="text-2xl mb-1">🎯</p>
+                  <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{goals.filter(g => g.saved >= g.target).length} Goals Hit</p>
+                  <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>Savings targets met</p>
+                </div>
+                <div className={`p-3 rounded-xl text-center ${dm('bg-purple-50', 'bg-purple-950/30')}`}>
+                  <p className="text-2xl mb-1">{monthlyIncome > 0 && goals.reduce((s, g) => s + (g.monthlyContribution || 0), 0) / monthlyIncome >= 0.2 ? '💰' : '📈'}</p>
+                  <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{monthlyIncome > 0 ? Math.round(goals.reduce((s, g) => s + (g.monthlyContribution || 0), 0) / monthlyIncome * 100) : 0}% Savings Rate</p>
+                  <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>{monthlyIncome > 0 && goals.reduce((s, g) => s + (g.monthlyContribution || 0), 0) / monthlyIncome >= 0.2 ? 'Excellent!' : 'Goal: 20%+'}</p>
+                </div>
+                <div className={`p-3 rounded-xl text-center ${dm('bg-indigo-50', 'bg-indigo-950/30')}`}>
+                  <p className="text-2xl mb-1">{Array.isArray(subscriptions) && subscriptions.filter(s => s && !s.active).length > 0 ? '💪' : '📋'}</p>
+                  <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{Array.isArray(subscriptions) ? subscriptions.filter(s => s && !s.active).length : 0} Subs Paused</p>
+                  <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>Cancelled subscriptions</p>
+                </div>
+                <div className={`p-3 rounded-xl text-center ${dm('bg-green-50', 'bg-green-950/30')}`}>
+                  <p className="text-2xl mb-1">{debts.length > 0 ? '⚡' : '✅'}</p>
+                  <p className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{debts.length} Active Debts</p>
+                  <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>{debts.length === 0 ? 'Debt free!' : 'Keep going!'}</p>
+                </div>
+              </div>
+            </Card>
+          </>
+        )}
 
         {/* ═══════ YEAR TAB ═══════ */}
         {tab === "yearly" && (() => {
