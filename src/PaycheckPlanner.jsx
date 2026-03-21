@@ -34,7 +34,7 @@ const THEMES = {
   pipboy: { name: "Pip-Boy", emoji: "☢️", bg: "bg-black", cardClass: "border-green-500/30 bg-black/80 shadow-[0_0_15px_rgba(0,255,0,0.08)]", headerClass: "bg-black/95 border-green-500/30", textClass: "text-green-400", accentColor: "#00ff00", fontFamily: "'Share Tech Mono', 'Courier New', monospace", borderStyle: "border-green-500/20", specialEffect: "pipboy" },
   lego: { name: "LEGO", emoji: "🧱", bg: "bg-yellow-50", cardClass: "border-2 border-red-400 bg-white rounded-none shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)]", headerClass: "bg-red-600 border-red-700", textClass: "text-red-700", accentColor: "#dc2626", fontFamily: "'Arial Black', sans-serif", borderStyle: "border-red-400", specialEffect: "lego" },
   comic: { name: "Comic Book", emoji: "💥", bg: "bg-sky-300", cardClass: "border-[3px] border-black bg-yellow-50 shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] rounded-none", headerClass: "bg-red-600 border-black border-b-[3px]", textClass: "text-black", accentColor: "#dc2626", fontFamily: "'Bangers', 'Comic Sans MS', cursive", borderStyle: "border-black border-2", specialEffect: "comic" },
-  newspaper: { name: "Newspaper", emoji: "📰", bg: "bg-amber-50", cardClass: "border border-amber-900/20 bg-amber-50/50 shadow-none", headerClass: "bg-amber-100/80 border-amber-900/20", textClass: "text-amber-950", accentColor: "#78350f", fontFamily: "'Georgia', 'Times New Roman', serif", borderStyle: "border-amber-900/20", specialEffect: "newspaper" },
+  newspaper: { name: "Typewriter", emoji: "📰", bg: "bg-amber-50", cardClass: "border border-amber-900/30 bg-amber-50/70 shadow-none rounded-none", headerClass: "bg-amber-100/90 border-amber-900/30", textClass: "text-amber-950", accentColor: "#5c3a1e", fontFamily: "'Special Elite', 'Courier New', monospace", borderStyle: "border-amber-900/25", specialEffect: "newspaper" },
   papyrus: { name: "Papyrus", emoji: "🏺", bg: "bg-amber-100", cardClass: "border border-amber-700/30 bg-gradient-to-b from-amber-100 to-amber-200/60 shadow-inner", headerClass: "bg-amber-200/80 border-amber-700/30", textClass: "text-amber-900", accentColor: "#b45309", fontFamily: "'Palatino Linotype', 'Book Antiqua', serif", borderStyle: "border-amber-700/30", specialEffect: "papyrus" },
   lionheart: { name: "Lionheart", emoji: "🦁", bg: "bg-red-950", cardClass: "border border-yellow-600/40 bg-red-950/80 shadow-lg shadow-yellow-900/10", headerClass: "bg-red-950/90 border-yellow-600/40", textClass: "text-yellow-100", accentColor: "#ca8a04", fontFamily: "'Palatino Linotype', serif", borderStyle: "border-yellow-600/30", specialEffect: "lionheart" },
   fifties: { name: "The 1950s", emoji: "🎸", bg: "bg-pink-50", cardClass: "border-2 border-pink-300 bg-white rounded-2xl shadow-md", headerClass: "bg-gradient-to-r from-pink-400 via-sky-300 to-mint-300 border-pink-300", textClass: "text-pink-800", accentColor: "#ec4899", fontFamily: "'Georgia', serif", borderStyle: "border-pink-300", specialEffect: "fifties" },
@@ -1477,6 +1477,26 @@ export default function PaycheckPlanner() {
         }
         input::placeholder, select option { color: rgba(0,255,0,0.4) !important; }
         svg { color: #00ff00 !important; filter: drop-shadow(0 0 3px rgba(0,255,0,0.3)); }
+        [class*="bg-gray-"], [class*="bg-slate-"], [class*="bg-white"],
+        [class*="bg-blue-50"], [class*="bg-purple-50"], [class*="bg-emerald-50"],
+        [class*="bg-amber-50"], [class*="bg-rose-50"], [class*="bg-cyan-50"],
+        [class*="bg-green-50"], [class*="bg-indigo-50"], [class*="bg-red-50"],
+        [class*="bg-yellow-50"], [class*="bg-orange-50"], [class*="bg-pink-50"] {
+          background: rgba(0,20,0,0.6) !important;
+        }
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: rgba(0,180,0,0.3) !important;
+          border: 1px solid rgba(0,255,0,0.4) !important;
+        }
+        [class*="bg-rose-"], [class*="bg-red-"] {
+          background: rgba(0,60,0,0.5) !important;
+        }
+        [class*="text-gray-"], [class*="text-slate-"], [class*="text-white"],
+        [class*="text-indigo-"], [class*="text-rose-"], [class*="text-amber-"],
+        [class*="text-cyan-"], [class*="text-emerald-"], [class*="text-green-"],
+        [class*="text-blue-"], [class*="text-purple-"] {
+          color: #00ff00 !important;
+        }
         .rounded-2xl, .rounded-xl, .rounded-lg { border-radius: 4px !important; }
       `}</style>}
       {activeTheme === 'comic' && <style>{`
@@ -1503,7 +1523,40 @@ export default function PaycheckPlanner() {
         button { text-transform: uppercase !important; letter-spacing: 1px !important; }
       `}</style>}
       {activeTheme === 'newspaper' && <style>{`
-        .min-h-screen { background-image: url("data:image/svg+xml,%3Csvg width='6' height='6' viewBox='0 0 6 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23d4a574' fill-opacity='0.08'%3E%3Cpath d='M5 0h1L0 5V4zM6 5v1H5z'/%3E%3C/g%3E%3C/svg%3E") !important; }
+        @import url('https://fonts.googleapis.com/css2?family=Special+Elite&display=swap');
+        .min-h-screen {
+          background: #f5f0e1 !important;
+          background-image:
+            url("data:image/svg+xml,%3Csvg width='200' height='200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E"),
+            repeating-linear-gradient(0deg, transparent 0px, transparent 28px, rgba(92,58,30,0.06) 28px, rgba(92,58,30,0.06) 29px) !important;
+        }
+        *, ::before, ::after { border-color: rgba(92,58,30,0.2) !important; }
+        h1, h2, h3, h4, h5, h6, p, span, label, a, button, th, td, li, div {
+          font-family: 'Special Elite', 'Courier New', monospace !important;
+          color: #3d2b1f !important;
+        }
+        h1, h2, h3 {
+          letter-spacing: 1.5px !important;
+          text-transform: uppercase !important;
+        }
+        input, select, textarea {
+          font-family: 'Special Elite', 'Courier New', monospace !important;
+          background: rgba(245,240,225,0.9) !important;
+          color: #3d2b1f !important;
+          border: 1px solid rgba(92,58,30,0.3) !important;
+          border-radius: 0 !important;
+          box-shadow: inset 1px 1px 3px rgba(92,58,30,0.1) !important;
+        }
+        input::placeholder { color: rgba(61,43,31,0.4) !important; font-style: italic !important; }
+        svg { color: #5c3a1e !important; }
+        .rounded-2xl, .rounded-xl, .rounded-lg { border-radius: 0 !important; }
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: #5c3a1e !important;
+          border-radius: 0 !important;
+        }
+        [class*="border-b-2"][class*="border-indigo-600"] {
+          border-color: #5c3a1e !important;
+        }
       `}</style>}
       {activeTheme === 'papyrus' && <style>{`
         .min-h-screen { background: linear-gradient(180deg, #fde68a 0%, #d97706 5%, #fbbf24 10%, #fde68a 50%, #f59e0b 90%, #d97706 100%) !important; background-size: 100% 200% !important; }
