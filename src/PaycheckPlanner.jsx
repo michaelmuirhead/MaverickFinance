@@ -32,7 +32,7 @@ const COLORS = [
 const THEMES = {
   default: { name: "Default", emoji: "🎨", bg: "", cardClass: "", headerClass: "", textClass: "", accentColor: "#6366f1", fontFamily: "", borderStyle: "", specialEffect: "" },
   pipboy: { name: "Pip-Boy", emoji: "☢️", bg: "bg-black", cardClass: "border-green-500/30 bg-black/80 shadow-[0_0_15px_rgba(0,255,0,0.08)]", headerClass: "bg-black/95 border-green-500/30", textClass: "text-green-400", accentColor: "#00ff00", fontFamily: "'Share Tech Mono', 'Courier New', monospace", borderStyle: "border-green-500/20", specialEffect: "pipboy" },
-  lego: { name: "LEGO", emoji: "🧱", bg: "bg-yellow-50", cardClass: "border-2 border-red-400 bg-white rounded-none shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)]", headerClass: "bg-red-600 border-red-700", textClass: "text-red-700", accentColor: "#dc2626", fontFamily: "'Arial Black', sans-serif", borderStyle: "border-red-400", specialEffect: "lego" },
+  lego: { name: "LEGO", emoji: "🧱", bg: "bg-yellow-300", cardClass: "border-[3px] border-black/20 bg-red-500 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] rounded-lg", headerClass: "bg-yellow-400 border-b-[3px] border-black/20", textClass: "text-black", accentColor: "#dc2626", fontFamily: "'Fredoka', 'Arial Black', sans-serif", borderStyle: "border-black/20", specialEffect: "lego" },
   comic: { name: "Comic Book", emoji: "💥", bg: "bg-sky-300", cardClass: "border-[3px] border-black bg-yellow-50 shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] rounded-none", headerClass: "bg-red-600 border-black border-b-[3px]", textClass: "text-black", accentColor: "#dc2626", fontFamily: "'Bangers', 'Comic Sans MS', cursive", borderStyle: "border-black border-2", specialEffect: "comic" },
   newspaper: { name: "Typewriter", emoji: "📰", bg: "bg-amber-50", cardClass: "border border-amber-900/30 bg-amber-50/70 shadow-none rounded-none", headerClass: "bg-amber-100/90 border-amber-900/30", textClass: "text-amber-950", accentColor: "#5c3a1e", fontFamily: "'Special Elite', 'Courier New', monospace", borderStyle: "border-amber-900/25", specialEffect: "newspaper" },
   papyrus: { name: "Papyrus", emoji: "🏺", bg: "bg-amber-100", cardClass: "border border-amber-700/30 bg-gradient-to-b from-amber-100 to-amber-200/60 shadow-inner", headerClass: "bg-amber-200/80 border-amber-700/30", textClass: "text-amber-900", accentColor: "#b45309", fontFamily: "'Palatino Linotype', 'Book Antiqua', serif", borderStyle: "border-amber-700/30", specialEffect: "papyrus" },
@@ -1634,7 +1634,95 @@ export default function PaycheckPlanner() {
         .min-h-screen { background: linear-gradient(135deg, #fce7f3 0%, #e0f2fe 50%, #d1fae5 100%) !important; }
       `}</style>}
       {activeTheme === 'lego' && <style>{`
-        .min-h-screen { background: #fef9c3 !important; background-image: radial-gradient(circle, rgba(220,38,38,0.08) 1px, transparent 1px) !important; background-size: 24px 24px !important; }
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap');
+        .min-h-screen {
+          background: #f6d832 !important;
+          background-image:
+            radial-gradient(circle at center, rgba(0,0,0,0.08) 8px, transparent 8px),
+            radial-gradient(circle at center, rgba(255,255,255,0.25) 6px, transparent 6px) !important;
+          background-size: 32px 32px !important;
+        }
+        *, ::before, ::after { border-color: rgba(0,0,0,0.15) !important; }
+        h1, h2, h3, h4, h5, h6, p, span, label, a, button, th, td, li, div {
+          font-family: 'Fredoka', 'Arial Black', sans-serif !important;
+          color: #1a1a1a !important;
+          text-shadow: none !important;
+        }
+        h1, h2, h3 {
+          font-weight: 700 !important;
+          text-transform: uppercase !important;
+          letter-spacing: 1px !important;
+        }
+        header h1, header p { color: #fff !important; }
+        input, select, textarea {
+          background: #fff !important;
+          color: #1a1a1a !important;
+          border: 3px solid rgba(0,0,0,0.2) !important;
+          border-radius: 8px !important;
+          font-family: 'Fredoka', sans-serif !important;
+          font-weight: 500 !important;
+        }
+        input::placeholder { color: rgba(0,0,0,0.35) !important; }
+        svg { color: #1a1a1a !important; filter: none !important; }
+
+        /* Cards = LEGO bricks — rotate between LEGO primary colors */
+        [class*="rounded-2xl"], [class*="shadow-"] {
+          border-radius: 12px !important;
+          border: 3px solid rgba(0,0,0,0.15) !important;
+          box-shadow: 4px 4px 0px rgba(0,0,0,0.25), inset 0 2px 0 rgba(255,255,255,0.2) !important;
+        }
+
+        /* Color the stat cards and regular cards like LEGO bricks */
+        .space-y-4 > div:nth-child(4n+1) > [class*="rounded-2xl"],
+        .space-y-4 > div:nth-child(4n+1) [class*="border-l-4"] { background: #d42020 !important; }
+        .space-y-4 > div:nth-child(4n+2) > [class*="rounded-2xl"] { background: #0057b8 !important; }
+        .space-y-4 > div:nth-child(4n+3) > [class*="rounded-2xl"] { background: #00963e !important; }
+        .space-y-4 > div:nth-child(4n+4) > [class*="rounded-2xl"] { background: #f6d832 !important; }
+
+        .space-y-4 > div:nth-child(4n+1) h3,
+        .space-y-4 > div:nth-child(4n+2) h3,
+        .space-y-4 > div:nth-child(4n+3) h3,
+        .space-y-4 > div:nth-child(4n+1) p,
+        .space-y-4 > div:nth-child(4n+2) p,
+        .space-y-4 > div:nth-child(4n+3) p,
+        .space-y-4 > div:nth-child(4n+1) span,
+        .space-y-4 > div:nth-child(4n+2) span,
+        .space-y-4 > div:nth-child(4n+3) span { color: #fff !important; }
+
+        /* Grid stat cards */
+        .grid > div:nth-child(4n+1) [class*="rounded-2xl"] { background: #d42020 !important; }
+        .grid > div:nth-child(4n+2) [class*="rounded-2xl"] { background: #0057b8 !important; }
+        .grid > div:nth-child(4n+3) [class*="rounded-2xl"] { background: #00963e !important; }
+        .grid > div:nth-child(4n+4) [class*="rounded-2xl"] { background: #f6d832 !important; }
+        .grid > div:nth-child(4n+1) p, .grid > div:nth-child(4n+1) span,
+        .grid > div:nth-child(4n+2) p, .grid > div:nth-child(4n+2) span,
+        .grid > div:nth-child(4n+3) p, .grid > div:nth-child(4n+3) span { color: #fff !important; }
+
+        /* Buttons = bright LEGO studs */
+        [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
+          background: #d42020 !important;
+          border: 3px solid rgba(0,0,0,0.15) !important;
+          border-radius: 8px !important;
+          box-shadow: 3px 3px 0px rgba(0,0,0,0.25), inset 0 2px 0 rgba(255,255,255,0.25) !important;
+          font-weight: 700 !important;
+          text-transform: uppercase !important;
+        }
+        [class*="bg-indigo-600"]:hover, [class*="bg-indigo-700"]:hover {
+          transform: translateY(1px) !important;
+          box-shadow: 2px 2px 0px rgba(0,0,0,0.25) !important;
+        }
+
+        /* Inner light backgrounds = white like LEGO baseplates */
+        [class*="bg-gray-50"], [class*="bg-gray-100"], [class*="bg-slate-"] {
+          background: rgba(255,255,255,0.85) !important;
+          border-radius: 8px !important;
+        }
+
+        /* Tab bar active */
+        [class*="border-b-2"][class*="border-indigo-600"] {
+          border-color: #d42020 !important;
+          color: #d42020 !important;
+        }
       `}</style>}
       {activeTheme === 'cyberpunk' && <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
