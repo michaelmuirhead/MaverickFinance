@@ -1472,15 +1472,29 @@ export default function PaycheckPlanner() {
   // Apply custom ordering to planner items
   const sortedPlannerItems = useMemo(() => {
     const order = plannerOrderByMonth[vKey];
-    if (!order) return plannerItems;
-    const orderMap = {};
-    order.forEach((id, idx) => { orderMap[id] = idx; });
-    const ordered = [...plannerItems].sort((a, b) => {
-      const ai = orderMap[a.id] !== undefined ? orderMap[a.id] : 9999;
-      const bi = orderMap[b.id] !== undefined ? orderMap[b.id] : 9999;
-      return ai - bi;
+    if (order && order.length > 0) {
+      // Manual reorder takes priority
+      const orderMap = {};
+      order.forEach((id, idx) => { orderMap[id] = idx; });
+      return [...plannerItems].sort((a, b) => {
+        const ai = orderMap[a.id] !== undefined ? orderMap[a.id] : 9999;
+        const bi = orderMap[b.id] !== undefined ? orderMap[b.id] : 9999;
+        return ai - bi;
+      });
+    }
+    // Default: chronological sort — income appears on its pay date, expenses
+    // appear after the paycheck that logically covers them (by due date).
+    // Income sorts before expenses on the same date so each paycheck
+    // "introduces" the expenses that follow it.
+    return [...plannerItems].sort((a, b) => {
+      const dateA = a.dateSortKey || "9999";
+      const dateB = b.dateSortKey || "9999";
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+      // Same date: income first, then expenses
+      if (a.type === "income" && b.type !== "income") return -1;
+      if (a.type !== "income" && b.type === "income") return 1;
+      return 0;
     });
-    return ordered;
   }, [plannerItems, plannerOrderByMonth, vKey]);
 
   const plannerTotalIncome = plannerItems.filter((i) => i.type === "income").reduce((s, i) => s + i.amount, 0);
