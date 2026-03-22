@@ -1761,6 +1761,18 @@ export default function PaycheckPlanner() {
 
   return (
     <div className={`min-h-screen ${isThemed ? theme.bg : dm('bg-gradient-to-br from-slate-50 via-gray-50 to-indigo-50', 'bg-slate-950')}`} style={isThemed ? { fontFamily: theme.fontFamily } : {}}>
+      {/* Mobile fullscreen + safe-area support */}
+      <style>{`
+        html, body, #root { width: 100%; min-height: 100dvh; margin: 0; padding: 0; overflow-x: hidden; -webkit-text-size-adjust: 100%; }
+        @supports (padding: env(safe-area-inset-top)) {
+          .safe-top { padding-top: env(safe-area-inset-top) !important; }
+          .safe-bottom { padding-bottom: env(safe-area-inset-bottom) !important; }
+          .safe-x { padding-left: env(safe-area-inset-left) !important; padding-right: env(safe-area-inset-right) !important; }
+        }
+        @media (max-width: 640px) {
+          .mobile-px { padding-left: 12px !important; padding-right: 12px !important; }
+        }
+      `}</style>
       {/* Theme special effects */}
       {activeTheme === 'pipboy' && <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
@@ -2718,8 +2730,8 @@ export default function PaycheckPlanner() {
       )}
 
       {/* Header */}
-      <header className={`${isThemed ? theme.headerClass : dm('bg-white/80', 'bg-slate-900/80')} backdrop-blur-md ${isThemed ? '' : dm('border-gray-200', 'border-slate-700')} border-b sticky top-0 z-30`}>
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <header className={`${isThemed ? theme.headerClass : dm('bg-white/80', 'bg-slate-900/80')} backdrop-blur-md ${isThemed ? '' : dm('border-gray-200', 'border-slate-700')} border-b sticky top-0 z-30 safe-top safe-x`}>
+        <div className="max-w-6xl mx-auto px-4 mobile-px py-3 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className={`${isThemed ? '' : 'bg-indigo-600'} text-white p-2 rounded-xl`} style={isThemed ? { background: theme.accentColor } : {}}><Wallet size={20} /></div>
             <div>
@@ -2860,8 +2872,8 @@ export default function PaycheckPlanner() {
       )}
 
       {/* Tab Navigation */}
-      <nav className={`${dm('bg-white border-gray-100', 'bg-slate-900 border-slate-700')} border-b sticky top-[57px] z-20`}>
-        <div className="max-w-6xl mx-auto px-4 flex gap-0.5 overflow-x-auto pb-px" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <nav className={`${dm('bg-white border-gray-100', 'bg-slate-900 border-slate-700')} border-b sticky top-[57px] z-20 safe-x`}>
+        <div className="max-w-6xl mx-auto px-4 mobile-px flex gap-0.5 overflow-x-auto pb-px" style={{ WebkitOverflowScrolling: 'touch' }}>
           {orderedTabs.map((t, idx) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -2896,7 +2908,7 @@ export default function PaycheckPlanner() {
         </div>
       </nav>
 
-      <main className={`max-w-6xl mx-auto px-4 py-6 space-y-6 ${dm('', 'text-white')}`}>
+      <main className={`max-w-6xl mx-auto px-4 mobile-px py-6 space-y-6 safe-x safe-bottom ${dm('', 'text-white')}`}>
 
         {/* ═══════ DASHBOARD ═══════ */}
         {tab === "dashboard" && (
