@@ -83,7 +83,7 @@ const THEMES = {
   blueprint: { name: "Blueprint", emoji: "📐", bg: "bg-blue-950", cardClass: "border border-blue-300/25 bg-blue-950/80 shadow-none", headerClass: "bg-blue-950/95 border-blue-300/25", textClass: "text-blue-100", accentColor: "#60a5fa", fontFamily: "'Courier Prime', 'Courier New', monospace", borderStyle: "border-blue-300/20", specialEffect: "blueprint" },
   space: { name: "Space", emoji: "🚀", bg: "bg-gray-950", cardClass: "border border-violet-500/20 bg-gray-950/80 shadow-[0_0_20px_rgba(139,92,246,0.06)]", headerClass: "bg-gray-950/95 border-violet-500/20", textClass: "text-violet-200", accentColor: "#8b5cf6", fontFamily: "'Exo 2', 'Segoe UI', sans-serif", borderStyle: "border-violet-500/15", specialEffect: "space" },
   consul: { name: "Consul", emoji: "🏛️", bg: "bg-stone-100", cardClass: "border border-stone-400/40 bg-stone-100/90 shadow-md rounded-none", headerClass: "bg-red-900/95 border-stone-400/40", textClass: "text-stone-800", accentColor: "#7f1d1d", fontFamily: "'Cinzel', 'Trajan Pro', serif", borderStyle: "border-stone-400/30", specialEffect: "consul" },
-  pokemon: { name: "Pokémon", emoji: "🔴", bg: "bg-red-600", cardClass: "border-[3px] border-gray-800 bg-white rounded-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]", headerClass: "bg-red-600 border-gray-800 border-b-[3px]", textClass: "text-gray-900", accentColor: "#dc2626", fontFamily: "'Poppins', 'Arial', sans-serif", borderStyle: "border-gray-800", specialEffect: "pokemon" },
+  pokemon: { name: "Pokémon", emoji: "🔴", bg: "bg-red-600", cardClass: "border-[3px] border-gray-800 bg-white rounded-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]", headerClass: "bg-red-600 border-gray-800 border-b-[3px]", textClass: "text-gray-900", accentColor: "#dc2626", fontFamily: "'Pokemon Solid', 'Poppins', 'Arial', sans-serif", borderStyle: "border-gray-800", specialEffect: "pokemon" },
 };
 
 const TABS = [
@@ -2450,6 +2450,7 @@ export default function PaycheckPlanner() {
         }
       `}</style>}
       {activeTheme === 'pokemon' && !darkMode && <style>{`
+        @import url('https://fonts.cdnfonts.com/css/pokemon-solid');
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800;900&display=swap');
         .min-h-screen {
           background: #dc2626 !important;
@@ -2461,14 +2462,22 @@ export default function PaycheckPlanner() {
         }
         *, ::before, ::after { border-color: rgba(31,41,55,0.25) !important; }
         h1, h2, h3, h4, h5, h6 {
-          font-family: 'Poppins', Arial, sans-serif !important;
-          color: #1f2937 !important;
-          font-weight: 800 !important;
+          font-family: 'Pokemon Solid', 'Poppins', Arial, sans-serif !important;
+          color: #FFCB05 !important;
+          font-weight: 400 !important;
           text-transform: uppercase !important;
-          letter-spacing: 1px !important;
-          text-shadow: none !important;
+          letter-spacing: 2px !important;
+          -webkit-text-stroke: 2px #3466AF !important;
+          paint-order: stroke fill !important;
+          text-shadow: 0 3px 0 #1a3a6e !important;
         }
-        header h1, header p, header span, header div { color: #fff !important; }
+        header h1 {
+          color: #FFCB05 !important;
+          font-size: 20px !important;
+          -webkit-text-stroke: 2px #3466AF !important;
+          text-shadow: 0 3px 0 #1a3a6e !important;
+        }
+        header p, header span, header div { color: rgba(255,255,255,0.9) !important; font-family: 'Poppins', sans-serif !important; -webkit-text-stroke: 0 !important; text-shadow: none !important; }
         p, span, label, a, button, th, td, li, div {
           font-family: 'Poppins', Arial, sans-serif !important;
           color: #374151 !important;
@@ -2499,7 +2508,7 @@ export default function PaycheckPlanner() {
         .grid > div:nth-child(6n+4) [class*="rounded-2xl"] { background: #eab308 !important; border-color: #a16207 !important; }
         .grid > div:nth-child(6n+5) [class*="rounded-2xl"] { background: #a855f7 !important; border-color: #7e22ce !important; }
         .grid > div:nth-child(6n+6) [class*="rounded-2xl"] { background: #06b6d4 !important; border-color: #0e7490 !important; }
-        /* White text only inside colored stat cards, not all grids */
+        /* White text inside colored stat cards */
         .grid > div:nth-child(6n+1) [class*="rounded-2xl"] p,
         .grid > div:nth-child(6n+1) [class*="rounded-2xl"] span,
         .grid > div:nth-child(6n+1) [class*="rounded-2xl"] h1,
@@ -2535,7 +2544,15 @@ export default function PaycheckPlanner() {
         .grid > div:nth-child(6n+6) [class*="rounded-2xl"] h1,
         .grid > div:nth-child(6n+6) [class*="rounded-2xl"] h2,
         .grid > div:nth-child(6n+6) [class*="rounded-2xl"] h3,
-        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] svg { color: #fff !important; }
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] svg { color: #fff !important; -webkit-text-stroke: 0 !important; text-shadow: none !important; }
+        /* Headings inside colored stat cards — white with subtle stroke */
+        .grid > div:nth-child(n) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(n) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(n) [class*="rounded-2xl"] h3 {
+          color: #fff !important;
+          -webkit-text-stroke: 1px rgba(0,0,0,0.3) !important;
+          text-shadow: 0 2px 0 rgba(0,0,0,0.2) !important;
+        }
 
         /* Inner panels = light gray like Pokédex screen */
         [class*="bg-gray-50"], [class*="bg-gray-100"], [class*="bg-slate-"] {
@@ -2544,12 +2561,13 @@ export default function PaycheckPlanner() {
           border-radius: 10px !important;
         }
 
-        /* Buttons = Pokéball red */
+        /* Buttons = Pokéball red with Pokémon font */
         [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
           background: #dc2626 !important;
           border: 3px solid #1f2937 !important;
           border-radius: 25px !important;
-          font-weight: 700 !important;
+          font-family: 'Pokemon Solid', 'Poppins', sans-serif !important;
+          font-weight: 400 !important;
           text-transform: uppercase !important;
           letter-spacing: 1px !important;
           box-shadow: 2px 2px 0px rgba(0,0,0,0.2) !important;
@@ -2568,6 +2586,7 @@ export default function PaycheckPlanner() {
 
       {/* Master Ball dark mode variant */}
       {activeTheme === 'pokemon' && darkMode && <style>{`
+        @import url('https://fonts.cdnfonts.com/css/pokemon-solid');
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800;900&display=swap');
         .min-h-screen {
           background: #2d1b4e !important;
@@ -2579,14 +2598,22 @@ export default function PaycheckPlanner() {
         }
         *, ::before, ::after { border-color: rgba(168,85,247,0.3) !important; }
         h1, h2, h3, h4, h5, h6 {
-          font-family: 'Poppins', Arial, sans-serif !important;
+          font-family: 'Pokemon Solid', 'Poppins', Arial, sans-serif !important;
           color: #e9d5ff !important;
-          font-weight: 800 !important;
+          font-weight: 400 !important;
           text-transform: uppercase !important;
-          letter-spacing: 1px !important;
-          text-shadow: 0 0 12px rgba(168,85,247,0.4) !important;
+          letter-spacing: 2px !important;
+          -webkit-text-stroke: 2px #6d28d9 !important;
+          paint-order: stroke fill !important;
+          text-shadow: 0 3px 0 rgba(30,18,51,0.8), 0 0 15px rgba(168,85,247,0.5) !important;
         }
-        header h1, header p, header span, header div { color: #fff !important; text-shadow: 0 0 15px rgba(217,70,239,0.5) !important; }
+        header h1 {
+          color: #e9d5ff !important;
+          font-size: 20px !important;
+          -webkit-text-stroke: 2px #6d28d9 !important;
+          text-shadow: 0 3px 0 rgba(30,18,51,0.8), 0 0 15px rgba(217,70,239,0.6) !important;
+        }
+        header p, header span, header div { color: rgba(255,255,255,0.9) !important; font-family: 'Poppins', sans-serif !important; -webkit-text-stroke: 0 !important; text-shadow: 0 0 15px rgba(217,70,239,0.5) !important; }
         p, span, label, a, button, th, td, li, div {
           font-family: 'Poppins', Arial, sans-serif !important;
           color: #d8b4fe !important;
@@ -2653,7 +2680,15 @@ export default function PaycheckPlanner() {
         .grid > div:nth-child(6n+6) [class*="rounded-2xl"] h1,
         .grid > div:nth-child(6n+6) [class*="rounded-2xl"] h2,
         .grid > div:nth-child(6n+6) [class*="rounded-2xl"] h3,
-        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] svg { color: #fff !important; }
+        .grid > div:nth-child(6n+6) [class*="rounded-2xl"] svg { color: #fff !important; -webkit-text-stroke: 0 !important; text-shadow: none !important; }
+        /* Headings inside colored stat cards */
+        .grid > div:nth-child(n) [class*="rounded-2xl"] h1,
+        .grid > div:nth-child(n) [class*="rounded-2xl"] h2,
+        .grid > div:nth-child(n) [class*="rounded-2xl"] h3 {
+          color: #fff !important;
+          -webkit-text-stroke: 1px rgba(0,0,0,0.3) !important;
+          text-shadow: 0 2px 0 rgba(0,0,0,0.3) !important;
+        }
 
         /* Inner panels = deep purple */
         [class*="bg-gray-50"], [class*="bg-gray-100"], [class*="bg-slate-"], [class*="bg-white"] {
@@ -2662,12 +2697,13 @@ export default function PaycheckPlanner() {
           border-radius: 10px !important;
         }
 
-        /* Buttons = Master Ball magenta */
+        /* Buttons = Master Ball magenta with Pokémon font */
         [class*="bg-indigo-600"], [class*="bg-indigo-700"] {
           background: linear-gradient(135deg, #9333ea, #d946ef) !important;
           border: 3px solid #1a1a2e !important;
           border-radius: 25px !important;
-          font-weight: 700 !important;
+          font-family: 'Pokemon Solid', 'Poppins', sans-serif !important;
+          font-weight: 400 !important;
           text-transform: uppercase !important;
           letter-spacing: 1px !important;
           box-shadow: 2px 2px 0px rgba(0,0,0,0.3), 0 0 10px rgba(217,70,239,0.3) !important;
