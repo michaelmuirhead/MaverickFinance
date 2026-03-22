@@ -116,18 +116,18 @@ function generatePayDates(source, year, month) {
     const day = Math.min(refDay, lastOfMonth.getDate());
     results.push(new Date(year, month, day));
   } else if (source.frequency === "semimonthly") {
-    // Semi-monthly: 15th and last day of month
-    // If 15th falls on Saturday → Friday the 14th; Sunday → Friday the 13th
+    // Semi-monthly: 1st and 15th of month
+    // If payday falls on Saturday → preceding Friday; Sunday → preceding Friday
     const adjustForWeekend = (d) => {
       const dow = d.getDay(); // 0=Sun, 6=Sat
       if (dow === 6) return new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1); // Sat→Fri
       if (dow === 0) return new Date(d.getFullYear(), d.getMonth(), d.getDate() - 2); // Sun→Fri
       return d;
     };
+    const first = adjustForWeekend(new Date(year, month, 1));
     const mid = adjustForWeekend(new Date(year, month, 15));
-    const last = adjustForWeekend(lastOfMonth);
-    results.push(mid);
-    if (last.getTime() !== mid.getTime()) results.push(last);
+    results.push(first);
+    if (mid.getTime() !== first.getTime()) results.push(mid);
   } else {
     // weekly or biweekly — chain from reference date
     const ref = new Date(source.referenceDate + "T12:00:00");
@@ -257,7 +257,7 @@ function SwipeRow({ children, actions, isOpen, onToggle, darkMode }) {
         onTouchStart={(e) => { if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return; handleStart(e.touches[0].clientX); }}
         onTouchMove={(e) => { if (startX !== null) handleMove(e.touches[0].clientX); }}
         onTouchEnd={handleEnd}
-        onMouseDown={(e) => { if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return; e.preventDefault(); handleStart(e.clientX); }}
+        onMouseDown={(e) => { if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.closest('[draggable="true"]')) return; e.preventDefault(); handleStart(e.clientX); }}
         onMouseMove={(e) => { if (dragging) handleMove(e.clientX); }}
         onMouseUp={handleEnd}
         onMouseLeave={() => { if (dragging) handleEnd(); }}
@@ -3504,15 +3504,19 @@ export default function PaycheckPlanner() {
                             ? "bg-gray-50 border-gray-200"
                             : isIncome
                               ? "bg-emerald-50/40 border-emerald-100"
-                              : "bg-white border-gray-100"
-                        }`}>
+                              : dragOverItemId === item.id
+                                ? "bg-indigo-50 border-indigo-300"
+                                : "bg-white border-gray-100"
+                        }`}
+                          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverItemId(item.id); }}
+                          onDrop={(e) => { e.preventDefault(); if (draggedItemId) reorderPlannerItem(draggedItemId, item.id); }}
+                          onDragLeave={() => { if (dragOverItemId === item.id) setDragOverItemId(null); }}
+                        >
                           {/* Drag handle */}
                           <div className="flex-shrink-0"
                             draggable
-                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDraggedItemId(item.id); }}
-                            onDragOver={(e) => { e.preventDefault(); setDragOverItemId(item.id); }}
+                            onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.id); setDraggedItemId(item.id); }}
                             onDragEnd={() => { if (draggedItemId && dragOverItemId && draggedItemId !== dragOverItemId) reorderPlannerItem(draggedItemId, dragOverItemId); else { setDraggedItemId(null); setDragOverItemId(null); } }}
-                            onDrop={(e) => { e.preventDefault(); if (draggedItemId && dragOverItemId) reorderPlannerItem(draggedItemId, dragOverItemId); }}
                           >
                             <GripVertical size={14} className={`cursor-grab active:cursor-grabbing ${dragOverItemId === item.id ? 'text-indigo-500' : 'text-gray-300'}`} />
                           </div>
