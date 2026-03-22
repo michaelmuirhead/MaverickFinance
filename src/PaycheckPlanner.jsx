@@ -56,7 +56,7 @@ const PAY_FREQUENCIES = [
 const EXPENSE_CATEGORIES = [
   "Housing", "Utilities", "Transportation", "Food & Groceries",
   "Insurance", "Healthcare", "Entertainment", "Subscriptions",
-  "Personal Care", "Education", "Childcare", "Clothing", "Debt Payment", "Savings", "Other"
+  "Personal Care", "Education", "Childcare", "Clothing", "Debt Payment", "Savings", "Tithes", "Offering", "Other"
 ];
 
 const COLORS = [
@@ -297,9 +297,36 @@ function buildPlannerItemsForMonth(year, month, incomeSources, bills, debts, goa
   bills.forEach((b) => {
     autoItems.push({ id: `planner-bill-${b.id}`, amount: b.amount, type: "expense", paid: false });
   });
-  // Debts
+  // Debts — frequency-aware (monthly, semimonthly, biweekly, weekly)
+  const daysInMo = new Date(year, month + 1, 0).getDate();
   debts.forEach((d) => {
-    autoItems.push({ id: `planner-debt-${d.id}`, amount: d.minPayment + d.extraPayment, type: "expense", paid: false });
+    const freq = d.frequency || "monthly";
+    const paymentAmt = d.minPayment + d.extraPayment;
+    const dueDay = Math.min(d.dueDay || 1, daysInMo);
+
+    if (freq === "monthly") {
+      autoItems.push({ id: `planner-debt-${d.id}`, amount: paymentAmt, type: "expense", paid: false });
+    } else if (freq === "semimonthly") {
+      const adjustWknd = (day) => {
+        const dt = new Date(year, month, day);
+        const dow = dt.getDay();
+        if (dow === 6) return Math.max(1, day - 1);
+        if (dow === 0) return Math.max(1, day - 2);
+        return day;
+      };
+      [adjustWknd(1), adjustWknd(15)].forEach((dy, idx) => {
+        autoItems.push({ id: `planner-debt-${d.id}-sm${idx}`, amount: paymentAmt, type: "expense", paid: false });
+      });
+    } else {
+      const interval = freq === "weekly" ? 7 : 14;
+      let cursor = dueDay;
+      let idx = 0;
+      while (cursor <= daysInMo) {
+        autoItems.push({ id: `planner-debt-${d.id}-${freq}${idx}`, amount: paymentAmt, type: "expense", paid: false });
+        cursor += interval;
+        idx++;
+      }
+    }
   });
   // Savings
   goals.filter((g) => g.monthlyContribution > 0).forEach((g) => {
@@ -446,7 +473,6 @@ export default function PaycheckPlanner() {
   const forceSync = () => {
     if (fbUser) loadFromCloud(fbUser.uid);
   };
-
 
   // ─── Feature 5: Dark mode ───
   const [darkMode, setDarkMode] = useState(init("darkMode", false));
@@ -750,15 +776,41 @@ export default function PaycheckPlanner() {
 
   const recurringDebtExpenses = useMemo(() => {
     const mm = String(viewMonth + 1).padStart(2, "0");
-    return debts.map((d) => ({
-      id: `debt-${d.id}`,
-      description: `${d.name} payment`,
-      amount: d.minPayment + d.extraPayment,
-      category: "Debt Payment",
-      date: `${viewYear}-${mm}-01`,
-      recurring: true,
-      type: "debt",
-    }));
+    const daysInMo = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const results = [];
+    debts.forEach((d) => {
+      const freq = d.frequency || "monthly";
+      const paymentAmt = d.minPayment + d.extraPayment;
+      const dueDay = Math.min(d.dueDay || 1, daysInMo);
+
+      if (freq === "monthly") {
+        const dayStr = String(dueDay).padStart(2, "0");
+        results.push({ id: `debt-${d.id}`, description: `${d.name} payment`, amount: paymentAmt, category: "Debt Payment", date: `${viewYear}-${mm}-${dayStr}`, recurring: true, type: "debt" });
+      } else if (freq === "semimonthly") {
+        const adjustWknd = (day) => {
+          const dt = new Date(viewYear, viewMonth, day);
+          const dow = dt.getDay();
+          if (dow === 6) return Math.max(1, day - 1);
+          if (dow === 0) return Math.max(1, day - 2);
+          return day;
+        };
+        [adjustWknd(1), adjustWknd(15)].forEach((dy, idx) => {
+          const dayStr = String(dy).padStart(2, "0");
+          results.push({ id: `debt-${d.id}-sm${idx}`, description: `${d.name} payment`, amount: paymentAmt, category: "Debt Payment", date: `${viewYear}-${mm}-${dayStr}`, recurring: true, type: "debt" });
+        });
+      } else {
+        const interval = freq === "weekly" ? 7 : 14;
+        let cursor = dueDay;
+        let idx = 0;
+        while (cursor <= daysInMo) {
+          const dayStr = String(cursor).padStart(2, "0");
+          results.push({ id: `debt-${d.id}-${freq}${idx}`, description: `${d.name} payment`, amount: paymentAmt, category: "Debt Payment", date: `${viewYear}-${mm}-${dayStr}`, recurring: true, type: "debt" });
+          cursor += interval;
+          idx++;
+        }
+      }
+    });
+    return results;
   }, [debts, viewYear, viewMonth]);
 
   // Savings contributions as expenses
@@ -1291,11 +1343,47 @@ export default function PaycheckPlanner() {
       auto.push({ id: pid, label: b.name, amount: b.amount, type: "expense", paid: !!plannerPaidMap[pid], auto: true, source: "bill",
         dateSortKey: `${viewYear}-${mm}-${dayStr}`, dateLabel: `Due ${b.dueDay}` });
     });
-    // Debt payments
+    // Debt payments — frequency-aware (monthly, semimonthly, biweekly, weekly)
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
     debts.forEach((d) => {
-      const pid = `planner-debt-${d.id}`;
-      auto.push({ id: pid, label: `${d.name} payment`, amount: d.minPayment + d.extraPayment, type: "expense", paid: !!plannerPaidMap[pid], auto: true, source: "debt",
-        dateSortKey: `${viewYear}-${mm}-01`, dateLabel: "Monthly" });
+      const freq = d.frequency || "monthly";
+      const paymentAmt = d.minPayment + d.extraPayment;
+      const dueDay = Math.min(d.dueDay || 1, daysInMonth);
+
+      if (freq === "monthly") {
+        const pid = `planner-debt-${d.id}`;
+        const dayStr = String(dueDay).padStart(2, "0");
+        auto.push({ id: pid, label: `${d.name} payment`, amount: paymentAmt, type: "expense", paid: !!plannerPaidMap[pid], auto: true, source: "debt",
+          dateSortKey: `${viewYear}-${mm}-${dayStr}`, dateLabel: `Due ${dueDay}` });
+      } else if (freq === "semimonthly") {
+        // 1st and 15th — weekend rule: Sat→Fri, Sun→Fri
+        const adjustWknd = (day) => {
+          const dt = new Date(viewYear, viewMonth, day);
+          const dow = dt.getDay();
+          if (dow === 6) return Math.max(1, day - 1);
+          if (dow === 0) return Math.max(1, day - 2);
+          return day;
+        };
+        [adjustWknd(1), adjustWknd(15)].forEach((dy, idx) => {
+          const pid = `planner-debt-${d.id}-sm${idx}`;
+          const dayStr = String(dy).padStart(2, "0");
+          auto.push({ id: pid, label: `${d.name} payment`, amount: paymentAmt, type: "expense", paid: !!plannerPaidMap[pid], auto: true, source: "debt",
+            dateSortKey: `${viewYear}-${mm}-${dayStr}`, dateLabel: `Due ${dy}` });
+        });
+      } else {
+        // weekly (every 7 days) or biweekly (every 14 days)
+        const interval = freq === "weekly" ? 7 : 14;
+        let cursor = dueDay;
+        let idx = 0;
+        while (cursor <= daysInMonth) {
+          const pid = `planner-debt-${d.id}-${freq}${idx}`;
+          const dayStr = String(cursor).padStart(2, "0");
+          auto.push({ id: pid, label: `${d.name} payment`, amount: paymentAmt, type: "expense", paid: !!plannerPaidMap[pid], auto: true, source: "debt",
+            dateSortKey: `${viewYear}-${mm}-${dayStr}`, dateLabel: `Due ${cursor}` });
+          cursor += interval;
+          idx++;
+        }
+      }
     });
     // Savings contributions
     goals.filter((g) => g.monthlyContribution > 0).forEach((g) => {
@@ -4526,6 +4614,7 @@ export default function PaycheckPlanner() {
                   <select value={debtDraft.frequency || "monthly"} onChange={(e) => setDebtDraft({ ...debtDraft, frequency: e.target.value })}
                     className={`px-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`}>
                     <option value="monthly">Monthly</option>
+                    <option value="semimonthly">Semi-Monthly</option>
                     <option value="biweekly">Biweekly</option>
                     <option value="weekly">Weekly</option>
                   </select>
