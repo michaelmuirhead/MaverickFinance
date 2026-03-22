@@ -4287,8 +4287,9 @@ export default function PaycheckPlanner() {
                         bill: { bg: "bg-amber-100", text: "text-amber-700", label: "Bill", iconBg: "bg-amber-50", iconText: "text-amber-500" },
                         debt: { bg: "bg-rose-100", text: "text-rose-700", label: "Debt", iconBg: "bg-rose-50", iconText: "text-rose-500" },
                         savings: { bg: "bg-cyan-100", text: "text-cyan-700", label: "Savings", iconBg: "bg-cyan-50", iconText: "text-cyan-500" },
+                        subscription: { bg: "bg-purple-100", text: "text-purple-700", label: "Sub", iconBg: "bg-purple-50", iconText: "text-purple-500" },
                         manual: { bg: "bg-indigo-100", text: "text-indigo-700", label: "", iconBg: "bg-indigo-50", iconText: "text-indigo-500" },
-                      }[e.type];
+                      }[e.type] || { bg: "bg-gray-100", text: "text-gray-700", label: "", iconBg: "bg-gray-50", iconText: "text-gray-500" };
                       return !e.recurring ? (
                         <SwipeRow key={e.id} darkMode={darkMode}
                           isOpen={swipedItemId === `exp-${e.id}`}
