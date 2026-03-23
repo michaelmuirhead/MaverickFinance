@@ -353,6 +353,33 @@ const loadSaved = () => {
   } catch { return null; }
 };
 const savedData = loadSaved();
+
+// ─── One-time data migration: clean stale merchant fields ────────────────
+// Older versions used expense descriptions as merchant names in Top Merchants.
+// This strips the merchant field from any expense where merchant === description
+// (meaning it was never intentionally set by the user) and removes any expense
+// entries that have no description AND no amount (phantom/example entries).
+if (savedData && !savedData._migrationV1) {
+  const ebm = savedData.expensesByMonth;
+  if (ebm && typeof ebm === 'object') {
+    Object.keys(ebm).forEach(mk => {
+      if (Array.isArray(ebm[mk])) {
+        ebm[mk] = ebm[mk]
+          .filter(e => e && (e.amount > 0 || (e.description && e.description.trim())))
+          .map(e => {
+            if (e.merchant && e.description && e.merchant.trim() === e.description.trim()) {
+              return { ...e, merchant: '' };
+            }
+            return e;
+          });
+      }
+    });
+    savedData.expensesByMonth = ebm;
+  }
+  savedData._migrationV1 = true;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(savedData)); } catch {}
+}
+
 const init = (key, fallback) => {
   if (!savedData || savedData[key] === undefined || savedData[key] === null) return fallback;
   return savedData[key];
@@ -467,7 +494,18 @@ export default function PaycheckPlanner() {
         if (cloudData.bills) setBills(cloudData.bills);
         if (cloudData.goals) setGoals(cloudData.goals);
         if (cloudData.debts) setDebts(cloudData.debts);
-        if (cloudData.expensesByMonth) setExpensesByMonth(cloudData.expensesByMonth);
+        if (cloudData.expensesByMonth) {
+          // Sanitize cloud expenses: strip merchant where it matches description (stale data)
+          const ebm = cloudData.expensesByMonth;
+          Object.keys(ebm).forEach(mk => {
+            if (Array.isArray(ebm[mk])) {
+              ebm[mk] = ebm[mk]
+                .filter(e => e && (e.amount > 0 || (e.description && e.description.trim())))
+                .map(e => (e.merchant && e.description && e.merchant.trim() === e.description.trim()) ? { ...e, merchant: '' } : e);
+            }
+          });
+          setExpensesByMonth(ebm);
+        }
         if (cloudData.extraChecks) setExtraChecks(cloudData.extraChecks);
         if (cloudData.incomeOverrides) setIncomeOverrides(cloudData.incomeOverrides);
         if (cloudData.plannerManualByMonth) setPlannerManualByMonth(cloudData.plannerManualByMonth);
@@ -4704,23 +4742,23 @@ export default function PaycheckPlanner() {
               </Card>
             </div>
 
-            {/* Merchant Tracking */}
-            {allMonthExpenses.filter(e => !e.recurring).length > 0 && (
+            {/* Merchant Tracking — only from user-entered merchant field on manual expenses */}
+            {(() => {
+              const merchants = {};
+              (manualExpenses || []).forEach(e => {
+                const name = (e.merchant || '').trim();
+                if (!name) return;
+                if (!merchants[name]) merchants[name] = { count: 0, total: 0 };
+                merchants[name].count++;
+                merchants[name].total += e.amount;
+              });
+              const sorted = Object.entries(merchants).sort((a, b) => b[1].total - a[1].total).slice(0, 10);
+              if (sorted.length === 0) return null;
+              return (
               <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Top Merchants</h3>
                 <div className="space-y-2">
-                  {(() => {
-                    const merchants = {};
-                    allMonthExpenses.filter(e => !e.recurring).forEach(e => {
-                      const name = e.description || 'Unknown';
-                      if (!merchants[name]) merchants[name] = { count: 0, total: 0 };
-                      merchants[name].count++;
-                      merchants[name].total += e.amount;
-                    });
-                    return Object.entries(merchants)
-                      .sort((a, b) => b[1].total - a[1].total)
-                      .slice(0, 10)
-                      .map(([name, data], i) => (
+                  {sorted.map(([name, data], i) => (
                         <div key={name} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg ${dm('bg-gray-50 hover:bg-gray-100', 'bg-slate-700/40 hover:bg-slate-700')} transition`}>
                           <div className={`w-8 h-8 rounded-lg ${dm('bg-indigo-100', 'bg-slate-700')} ${dm('text-indigo-600', 'text-indigo-400')} text-xs font-bold flex items-center justify-center`}>
                             {i + 1}
@@ -4731,11 +4769,11 @@ export default function PaycheckPlanner() {
                           </div>
                           <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>{fmt(data.total)}</span>
                         </div>
-                      ));
-                  })()}
+                      ))}
                 </div>
               </Card>
-            )}
+              );
+            })()}
           </>
         )}
 
