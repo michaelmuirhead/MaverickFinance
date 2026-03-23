@@ -460,6 +460,8 @@ export default function PaycheckPlanner() {
         if (cloudData.cashFlowStartBal !== undefined) setCashFlowStartBal(cloudData.cashFlowStartBal);
         if (cloudData.tabOrder) setTabOrder(cloudData.tabOrder);
         if (cloudData.showBadges !== undefined) setShowBadges(cloudData.showBadges);
+        if (cloudData.rolloverEnabled !== undefined) setRolloverEnabled(cloudData.rolloverEnabled);
+        if (cloudData.rolloverOverrides) setRolloverOverrides(cloudData.rolloverOverrides);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
       }
       setSyncStatus("synced");
@@ -688,6 +690,10 @@ export default function PaycheckPlanner() {
   // ═══════════════════════════════════════════════════════════════════════
   const [tabOrder, setTabOrder] = useState(init("tabOrder", null));
   const [showBadges, setShowBadges] = useState(init("showBadges", true));
+  const [rolloverEnabled, setRolloverEnabled] = useState(init("rolloverEnabled", false));
+  const [rolloverOverrides, setRolloverOverrides] = useState(init("rolloverOverrides", {})); // { "2026-03": 150.00 }
+  const [editingRollover, setEditingRollover] = useState(false);
+  const [rolloverDraftAmt, setRolloverDraftAmt] = useState("");
   const [calendarSelectedDay, setCalendarSelectedDay] = useState(null);
 
   // ─── Tab order logic (Feature 2: Drag-to-Reorder Tabs) ───
@@ -707,7 +713,8 @@ export default function PaycheckPlanner() {
         customCategories, categoryBudgets, darkMode, activeTheme,
         assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
         payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
-        wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges
+        wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges,
+        rolloverEnabled, rolloverOverrides
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       saveToCloud(data);
@@ -717,7 +724,8 @@ export default function PaycheckPlanner() {
     customCategories, categoryBudgets, darkMode, activeTheme,
     assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
     payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
-    wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges]);
+    wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges,
+    rolloverEnabled, rolloverOverrides]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // DERIVED DATA for the viewed month
@@ -1327,6 +1335,45 @@ export default function PaycheckPlanner() {
   const plannerPaidMap = plannerPaidByMonth[vKey] || {};
   const plannerManualItems = plannerManualByMonth[vKey] || [];
 
+  // ─── Rollover: compute surplus from previous month ───
+  const rolloverAmount = useMemo(() => {
+    if (!rolloverEnabled) return 0;
+    // Check for manual override first
+    if (rolloverOverrides[vKey] !== undefined) return rolloverOverrides[vKey];
+    // Calculate previous month
+    let prevYear = viewYear;
+    let prevMonth = viewMonth - 1;
+    if (prevMonth < 0) { prevMonth = 11; prevYear -= 1; }
+    const prevKey = monthKey(prevYear, prevMonth);
+    // If the user has overridden the previous month's rollover-out, use that
+    // Build items for the previous month
+    const { autoItems } = buildPlannerItemsForMonth(prevYear, prevMonth, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth, subscriptions);
+    const prevManual = plannerManualByMonth[prevKey] || [];
+    const prevDismissed = plannerDismissedByMonth[prevKey] || [];
+    const allPrev = [...autoItems.filter(i => !prevDismissed.includes(i.id)), ...prevManual];
+    const prevIncome = allPrev.filter(i => i.type === "income").reduce((s, i) => s + i.amount, 0);
+    const prevExpenses = allPrev.filter(i => i.type === "expense").reduce((s, i) => s + i.amount, 0);
+    // Also get the previous month's own rollover (recursive via override or one level back)
+    const prevPrevOverride = rolloverOverrides[prevKey];
+    let prevRollover = 0;
+    if (prevPrevOverride !== undefined) {
+      prevRollover = prevPrevOverride;
+    } else if (rolloverEnabled) {
+      // Go one more level back for chain rollover
+      let pp2Year = prevYear;
+      let pp2Month = prevMonth - 1;
+      if (pp2Month < 0) { pp2Month = 11; pp2Year -= 1; }
+      const pp2Key = monthKey(pp2Year, pp2Month);
+      if (rolloverOverrides[pp2Key] !== undefined) {
+        const pp2Ro = rolloverOverrides[pp2Key];
+        // Compute prev month surplus with that rollover
+        prevRollover = 0; // stop chain at 2 levels unless overridden
+      }
+    }
+    const surplus = prevIncome + prevRollover - prevExpenses;
+    return Math.round(Math.max(surplus, 0) * 100) / 100;
+  }, [rolloverEnabled, rolloverOverrides, vKey, viewYear, viewMonth, incomeSources, bills, debts, goals, extraChecks, incomeOverrides, plannerDismissedByMonth, plannerManualByMonth, subscriptions]);
+
   const plannerItems = useMemo(() => {
     const auto = [];
     // Income: from monthPaychecks (generated + extras)
@@ -1409,8 +1456,23 @@ export default function PaycheckPlanner() {
     const filtered = auto.filter((item) => !plannerDismissed.includes(item.id));
     // Add manual items
     const manual = plannerManualItems.map((m) => ({ ...m, auto: false, source: "manual" }));
-    return [...filtered, ...manual];
-  }, [monthPaychecks, bills, debts, goals, subscriptions, plannerDismissed, plannerPaidMap, plannerManualItems, viewYear, viewMonth]);
+    // Add rollover line item if enabled and > 0
+    const allItems = [...filtered, ...manual];
+    if (rolloverEnabled && rolloverAmount > 0) {
+      let prevMonth = viewMonth - 1;
+      let prevYear = viewYear;
+      if (prevMonth < 0) { prevMonth = 11; prevYear -= 1; }
+      const prevLabel = new Date(prevYear, prevMonth).toLocaleDateString("en-US", { month: "short" });
+      const pid = "planner-rollover";
+      allItems.unshift({
+        id: pid, label: `Rollover from ${prevLabel}`, amount: rolloverAmount, type: "income",
+        paid: !!plannerPaidMap[pid], auto: true, source: "rollover",
+        dateSortKey: `${viewYear}-${mm}-00`, dateLabel: "Rollover",
+        isRollover: true
+      });
+    }
+    return allItems;
+  }, [monthPaychecks, bills, debts, goals, subscriptions, plannerDismissed, plannerPaidMap, plannerManualItems, viewYear, viewMonth, rolloverEnabled, rolloverAmount]);
 
   const addPlannerItem = (item) => {
     const key = vKey;
@@ -3548,6 +3610,49 @@ export default function PaycheckPlanner() {
               </div>
             </Card>
 
+            {/* Rollover toggle */}
+            <div className={`flex items-center justify-between px-3 py-2.5 rounded-xl ${dm("bg-white border border-gray-200", "bg-gray-800 border border-gray-700")}`}>
+              <div className="flex items-center gap-2">
+                <RefreshCw size={16} className={dm("text-indigo-500", "text-indigo-400")} />
+                <span className={`text-sm font-medium ${dm("text-gray-700", "text-gray-200")}`}>Rollover Funds</span>
+                {rolloverEnabled && rolloverAmount > 0 && !editingRollover && (
+                  <button onClick={() => { setEditingRollover(true); setRolloverDraftAmt(String(rolloverAmount)); }}
+                    className={`text-xs px-2 py-0.5 rounded-full ${dm("bg-indigo-50 text-indigo-600 hover:bg-indigo-100", "bg-indigo-900/50 text-indigo-300 hover:bg-indigo-800/50")} transition`}>
+                    {fmt(rolloverAmount)} — edit
+                  </button>
+                )}
+                {rolloverEnabled && rolloverAmount === 0 && !editingRollover && (
+                  <span className={`text-xs ${dm("text-gray-400", "text-gray-500")}`}>No surplus last month</span>
+                )}
+              </div>
+              <button onClick={() => { setRolloverEnabled(!rolloverEnabled); setEditingRollover(false); }}
+                className={`relative w-10 h-5 rounded-full transition-colors ${rolloverEnabled ? "bg-indigo-500" : dm("bg-gray-300", "bg-gray-600")}`}>
+                <span className={`absolute top-0.5 ${rolloverEnabled ? "left-5" : "left-0.5"} w-4 h-4 rounded-full bg-white shadow transition-all`} />
+              </button>
+            </div>
+            {/* Rollover edit inline */}
+            {editingRollover && rolloverEnabled && (
+              <div className={`flex items-center gap-2 px-3 py-2 rounded-xl ${dm("bg-indigo-50 border border-indigo-200", "bg-indigo-900/30 border border-indigo-700")}`}>
+                <span className={`text-xs font-medium ${dm("text-indigo-600", "text-indigo-300")}`}>Override rollover:</span>
+                <input type="number" min="0" step="0.01" value={rolloverDraftAmt} onChange={(e) => setRolloverDraftAmt(e.target.value)}
+                  className={`flex-1 text-sm px-2 py-1 rounded-lg border ${dm("border-indigo-300 bg-white", "border-indigo-600 bg-gray-800 text-white")} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                <button onClick={() => {
+                  const val = parseFloat(rolloverDraftAmt);
+                  if (!isNaN(val) && val >= 0) {
+                    setRolloverOverrides({ ...rolloverOverrides, [vKey]: Math.round(val * 100) / 100 });
+                  }
+                  setEditingRollover(false);
+                }} className="p-1 rounded-lg bg-indigo-500 text-white hover:bg-indigo-600 transition"><Check size={14} /></button>
+                <button onClick={() => {
+                  const updated = { ...rolloverOverrides };
+                  delete updated[vKey];
+                  setRolloverOverrides(updated);
+                  setEditingRollover(false);
+                }} className={`p-1 rounded-lg ${dm("bg-gray-200 text-gray-600 hover:bg-gray-300", "bg-gray-700 text-gray-300 hover:bg-gray-600")} transition text-xs`}>Reset</button>
+                <button onClick={() => setEditingRollover(false)} className={`p-1 rounded-lg ${dm("text-gray-400 hover:text-gray-600", "text-gray-500 hover:text-gray-300")} transition`}><X size={14} /></button>
+              </div>
+            )}
+
             {/* Add item buttons */}
             <div className="flex gap-2">
               <button onClick={() => setPlannerDraft({ label: "", amount: "", type: "income" })}
@@ -3641,11 +3746,13 @@ export default function PaycheckPlanner() {
                         <div data-planner-id={item.id} className={`flex items-center gap-3 py-3 px-4 border rounded-xl transition ${
                           item.paid
                             ? "bg-gray-50 border-gray-200"
-                            : isIncome
-                              ? "bg-emerald-50/40 border-emerald-100"
-                              : dragOverItemId === item.id
-                                ? "bg-indigo-50 border-indigo-300"
-                                : "bg-white border-gray-100"
+                            : item.isRollover
+                              ? "bg-indigo-50/60 border-indigo-200 border-dashed"
+                              : isIncome
+                                ? "bg-emerald-50/40 border-emerald-100"
+                                : dragOverItemId === item.id
+                                  ? "bg-indigo-50 border-indigo-300"
+                                  : "bg-white border-gray-100"
                         }`}
                           onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverItemId(item.id); }}
                           onDrop={(e) => { e.preventDefault(); if (draggedItemId) reorderPlannerItem(draggedItemId, item.id); }}
@@ -3711,6 +3818,7 @@ export default function PaycheckPlanner() {
                                   bill: { bg: "bg-amber-100", text: "text-amber-700", label: "Bill" },
                                   debt: { bg: "bg-rose-100", text: "text-rose-700", label: "Debt" },
                                   savings: { bg: "bg-cyan-100", text: "text-cyan-700", label: "Savings" },
+                                  rollover: { bg: "bg-indigo-100", text: "text-indigo-700", label: "Rollover" },
                                 }[item.source];
                                 return badge ? <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 ${badge.bg} ${badge.text}`}>{badge.label}</span> : null;
                               })()}
