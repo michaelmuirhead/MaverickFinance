@@ -381,6 +381,40 @@ export default function PaycheckPlanner() {
     return () => { if (unsub) unsub(); };
   }, []);
 
+  // ─── Auto update detection: poll index.html for new deploys ───
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  const initialHtmlRef = useRef(null);
+
+  useEffect(() => {
+    let timer = null;
+    const checkForUpdate = async () => {
+      try {
+        // Fetch our own index.html with cache-bust to bypass service worker / CDN cache
+        const res = await fetch(`/?_cb=${Date.now()}`, { cache: "no-store", headers: { Accept: "text/html" } });
+        if (!res.ok) return;
+        const html = await res.text();
+        // Extract just the <script> and <link> tags — these contain Vite's hashed filenames
+        const assetSignature = (html.match(/<(?:script|link)[^>]*(?:src|href)="[^"]*"/g) || []).sort().join("|");
+        if (!initialHtmlRef.current) {
+          // First load — store the baseline
+          initialHtmlRef.current = assetSignature;
+        } else if (assetSignature !== initialHtmlRef.current) {
+          // Asset hashes changed — a new build was deployed
+          setUpdateAvailable(true);
+          setUpdateDismissed(false);
+          if (timer) clearInterval(timer);
+        }
+      } catch { /* offline or fetch failed — skip silently */ }
+    };
+    // Wait a bit after mount, then check every 5 minutes
+    const initialDelay = setTimeout(() => {
+      checkForUpdate();
+      timer = setInterval(checkForUpdate, 5 * 60 * 1000);
+    }, 10000);
+    return () => { clearTimeout(initialDelay); if (timer) clearInterval(timer); };
+  }, []);
+
   const signInWithGoogle = async () => {
     if (!firebaseEnabled) return;
     try {
@@ -2925,6 +2959,28 @@ export default function PaycheckPlanner() {
                   Done!
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Update available banner */}
+      {updateAvailable && !updateDismissed && (
+        <div className="safe-top safe-x">
+          <div className={`flex items-center justify-between gap-3 px-4 py-2.5 ${dm('bg-indigo-600', 'bg-indigo-700')} text-white`}>
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <Sparkles size={16} className="flex-shrink-0 text-indigo-200" />
+              <p className="text-sm font-medium truncate">
+                A new update is available!
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button onClick={() => window.location.reload()} className="px-3 py-1 bg-white text-indigo-700 text-xs font-bold rounded-full hover:bg-indigo-50 transition">
+                Refresh
+              </button>
+              <button onClick={() => setUpdateDismissed(true)} className="p-0.5 rounded-full hover:bg-indigo-500 transition">
+                <X size={14} />
+              </button>
             </div>
           </div>
         </div>
