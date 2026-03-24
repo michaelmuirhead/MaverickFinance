@@ -298,8 +298,9 @@ function buildPlannerItemsForMonth(year, month, incomeSources, bills, debts, goa
     autoItems.push({ id: `planner-bill-${b.id}`, amount: b.amount, type: "expense", paid: false });
   });
   // Debts — frequency-aware (monthly, semimonthly, biweekly, weekly)
+  // Skip debts with no monthly payment (user can still track one-off payments manually)
   const daysInMo = new Date(year, month + 1, 0).getDate();
-  debts.forEach((d) => {
+  debts.filter((d) => (d.minPayment || 0) + (d.extraPayment || 0) > 0).forEach((d) => {
     const freq = d.frequency || "monthly";
     const paymentAmt = d.minPayment + d.extraPayment;
     const dueDay = Math.min(d.dueDay || 1, daysInMo);
