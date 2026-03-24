@@ -1155,7 +1155,7 @@ export default function PaycheckPlanner() {
         if (balance < 0) balance = 0;
       }
       return { ...d, months, totalInterest };
-    });
+    }).sort((a, b) => b.balance - a.balance);
   }, [debts]);
 
   // Snowball vs Avalanche comparison
