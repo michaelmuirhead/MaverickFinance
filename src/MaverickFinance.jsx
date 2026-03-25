@@ -360,7 +360,8 @@ const savedData = loadSaved();
 // This strips the merchant field from any expense where merchant === description
 // (meaning it was never intentionally set by the user) and removes any expense
 // entries that have no description AND no amount (phantom/example entries).
-if (savedData && !savedData._migrationV1) {
+if (savedData && !savedData._migrationV2) {
+  // --- V1: Clean stale merchant fields & phantom expenses ---
   const ebm = savedData.expensesByMonth;
   if (ebm && typeof ebm === 'object') {
     Object.keys(ebm).forEach(mk => {
@@ -377,7 +378,47 @@ if (savedData && !savedData._migrationV1) {
     });
     savedData.expensesByMonth = ebm;
   }
+
+  // --- V2: Remove sample/placeholder entries with no real user data ---
+  const sampleBillNames = ['rent / mortgage', 'car payment', 'utilities', 'car battery', 'car repair'];
+  const sampleGoalNames = ['emergency fund', 'vacation', 'savings'];
+  const sampleIncomeNames = ['primary job', 'job'];
+
+  // Clean bills: remove entries where name matches a sample AND amount is 0/empty
+  if (Array.isArray(savedData.bills)) {
+    savedData.bills = savedData.bills.filter(b => {
+      if (!b) return false;
+      const nameLC = (b.name || '').trim().toLowerCase();
+      const hasAmount = b.amount && parseFloat(b.amount) > 0;
+      if (sampleBillNames.includes(nameLC) && !hasAmount) return false;
+      return true;
+    });
+  }
+
+  // Clean goals: remove entries where name matches a sample AND no saved progress & no contribution
+  if (Array.isArray(savedData.goals)) {
+    savedData.goals = savedData.goals.filter(g => {
+      if (!g) return false;
+      const nameLC = (g.name || '').trim().toLowerCase();
+      const hasProgress = (g.saved && g.saved > 0) || (g.monthlyContribution && parseFloat(g.monthlyContribution) > 0);
+      if (sampleGoalNames.includes(nameLC) && !hasProgress) return false;
+      return true;
+    });
+  }
+
+  // Clean income sources: remove entries where name matches a sample AND amount is 0/empty
+  if (Array.isArray(savedData.incomeSources)) {
+    savedData.incomeSources = savedData.incomeSources.filter(s => {
+      if (!s) return false;
+      const nameLC = (s.name || '').trim().toLowerCase();
+      const hasAmount = s.amount && parseFloat(s.amount) > 0;
+      if (sampleIncomeNames.includes(nameLC) && !hasAmount) return false;
+      return true;
+    });
+  }
+
   savedData._migrationV1 = true;
+  savedData._migrationV2 = true;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(savedData)); } catch {}
 }
 
@@ -576,9 +617,9 @@ export default function MaverickFinance() {
   const [onboardingStep, setOnboardingStep] = useState(0); // 0 = not started / done
   const [showOnboarding, setShowOnboarding] = useState(!savedData); // auto-show on first visit only
   const [onboardingData, setOnboardingData] = useState({
-    incomeSources: [{ name: "Primary Job", amount: "", frequency: "biweekly", referenceDate: "" }],
-    bills: [{ name: "Rent / Mortgage", amount: "", dueDay: 1 }, { name: "Car Payment", amount: "", dueDay: 5 }, { name: "Utilities", amount: "", dueDay: 15 }],
-    savingsGoals: [{ name: "Emergency Fund", monthlyContribution: "", target: 10000 }]
+    incomeSources: [{ name: "", amount: "", frequency: "biweekly", referenceDate: "" }],
+    bills: [{ name: "", amount: "", dueDay: 1 }],
+    savingsGoals: [{ name: "", monthlyContribution: "", target: "" }]
   });
 
   // ─── Feature 2: Dismissed suggestions ───
@@ -1402,6 +1443,33 @@ export default function MaverickFinance() {
     setSavingsTransactions(prev => ({ ...prev, [goalId]: [...(prev[goalId] || []), txn] }));
     setSavingsWithdrawDraft(null);
   };
+  const deleteSavingsTxn = (goalId, txnId) => {
+    const txns = savingsTransactions[goalId] || [];
+    const txn = txns.find(t => t.id === txnId);
+    if (!txn) return;
+    // Reverse the effect on the goal balance
+    const delta = txn.type === "deposit" ? -txn.amount : txn.amount;
+    setGoals(goals.map(g => g.id === goalId ? { ...g, saved: Math.max(0, g.saved + delta) } : g));
+    setSavingsTransactions(prev => ({ ...prev, [goalId]: (prev[goalId] || []).filter(t => t.id !== txnId) }));
+  };
+  const updateSavingsTxn = (goalId, txnId, updates) => {
+    const txns = savingsTransactions[goalId] || [];
+    const oldTxn = txns.find(t => t.id === txnId);
+    if (!oldTxn) return;
+    // Reverse old effect, apply new effect
+    const oldDelta = oldTxn.type === "deposit" ? oldTxn.amount : -oldTxn.amount;
+    const newType = updates.type || oldTxn.type;
+    const newAmount = updates.amount !== undefined ? +updates.amount : oldTxn.amount;
+    const newDelta = newType === "deposit" ? newAmount : -newAmount;
+    const balanceChange = newDelta - oldDelta;
+    setGoals(goals.map(g => g.id === goalId ? { ...g, saved: Math.max(0, g.saved + balanceChange) } : g));
+    setSavingsTransactions(prev => ({
+      ...prev,
+      [goalId]: (prev[goalId] || []).map(t => t.id === txnId ? { ...t, ...updates, amount: newAmount } : t)
+    }));
+    setEditingSavingsTxn(null);
+  };
+  const [editingSavingsTxn, setEditingSavingsTxn] = useState(null);
   const addExpense = (e) => {
     const key = vKey;
     const newExp = { ...e, id: uid() };
@@ -1818,16 +1886,16 @@ export default function MaverickFinance() {
     const d = onboardingData;
     const validIncome = d.incomeSources.filter(s => s.amount && parseFloat(s.amount) > 0);
     if (validIncome.length > 0) {
-      setIncomeSources(validIncome.map(s => ({ id: uid(), name: s.name || "Job", amount: parseFloat(s.amount) || 0, frequency: s.frequency, referenceDate: s.referenceDate || "2026-03-07" })));
+      setIncomeSources(validIncome.map(s => ({ id: uid(), name: s.name || "Income", amount: parseFloat(s.amount) || 0, frequency: s.frequency, referenceDate: s.referenceDate || "" })));
     }
     const validBills = d.bills.filter(b => b.amount && parseFloat(b.amount) > 0);
     if (validBills.length > 0) {
-      setBills(validBills.map(b => ({ id: uid(), name: b.name || "Bill", amount: parseFloat(b.amount), dueDay: b.dueDay || 1, category: "General", autopay: false })));
+      setBills(validBills.map(b => ({ id: uid(), name: b.name || "Untitled Bill", amount: parseFloat(b.amount), dueDay: b.dueDay || 1, category: "General", autopay: false })));
     }
     const validGoals = d.savingsGoals.filter(g => g.monthlyContribution && parseFloat(g.monthlyContribution) > 0);
     if (validGoals.length > 0) {
       const goalColors = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
-      setGoals(validGoals.map((g, i) => ({ id: uid(), name: g.name || "Savings", target: parseFloat(g.target) || 10000, saved: 0, monthlyContribution: parseFloat(g.monthlyContribution), color: goalColors[i % goalColors.length] })));
+      setGoals(validGoals.map((g, i) => ({ id: uid(), name: g.name || "Untitled Goal", target: parseFloat(g.target) || 0, saved: 0, monthlyContribution: parseFloat(g.monthlyContribution), color: goalColors[i % goalColors.length] })));
     }
     setShowOnboarding(false);
     setOnboardingStep(0);
@@ -1985,7 +2053,7 @@ export default function MaverickFinance() {
                       </div>
                     ))}
                   </div>
-                  <button onClick={() => addListItem("savingsGoals", { name: "", monthlyContribution: "", target: 10000 })}
+                  <button onClick={() => addListItem("savingsGoals", { name: "", monthlyContribution: "", target: "" })}
                     className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-indigo-400 hover:text-indigo-600 transition flex items-center justify-center gap-1.5">
                     <Plus size={15} /> Add Another Goal
                   </button>
@@ -4334,9 +4402,32 @@ export default function MaverickFinance() {
                             <ChevronDown size={14} className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                           </button>
                           {isExpanded && (
-                            <div className={`mt-1 space-y-1 max-h-48 overflow-y-auto rounded-lg ${dm('bg-slate-700/30', 'bg-gray-50')} p-2`}>
+                            <div className={`mt-1 space-y-1 max-h-64 overflow-y-auto rounded-lg ${dm('bg-slate-700/30', 'bg-gray-50')} p-2`}>
                               {[...txns].reverse().map((txn) => (
-                                <div key={txn.id} className={`flex items-center gap-2 py-1.5 px-2 rounded-lg ${dm('hover:bg-slate-600/50', 'hover:bg-white')} transition`}>
+                                editingSavingsTxn && editingSavingsTxn.id === txn.id ? (
+                                  <div key={txn.id} className={`p-2 rounded-lg ${dm('bg-slate-600/50', 'bg-white')} space-y-2`}>
+                                    <div className="flex gap-2">
+                                      <select value={editingSavingsTxn.type} onChange={(e) => setEditingSavingsTxn({ ...editingSavingsTxn, type: e.target.value })}
+                                        className={`px-2 py-1 border rounded-lg text-xs ${dm('border-slate-500 bg-slate-700 text-white', 'border-gray-200')} focus:outline-none focus:ring-1 focus:ring-indigo-500`}>
+                                        <option value="deposit">Deposit</option>
+                                        <option value="withdrawal">Withdrawal</option>
+                                      </select>
+                                      <input value={editingSavingsTxn.description} onChange={(e) => setEditingSavingsTxn({ ...editingSavingsTxn, description: e.target.value })}
+                                        placeholder="Description" className={`flex-1 px-2 py-1 border rounded-lg text-xs ${dm('border-slate-500 bg-slate-700 text-white', 'border-gray-200')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                                      <div className="relative w-24">
+                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]">$</span>
+                                        <input type="number" value={editingSavingsTxn.amount} onChange={(e) => setEditingSavingsTxn({ ...editingSavingsTxn, amount: e.target.value })}
+                                          className={`w-full pl-5 pr-2 py-1 border rounded-lg text-xs ${dm('border-slate-500 bg-slate-700 text-white', 'border-gray-200')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <button onClick={() => { if (editingSavingsTxn.amount && editingSavingsTxn.description) updateSavingsTxn(g.id, txn.id, { description: editingSavingsTxn.description, amount: +editingSavingsTxn.amount, type: editingSavingsTxn.type }); }}
+                                        className="flex-1 bg-indigo-600 text-white rounded-lg text-[10px] font-medium py-1 hover:bg-indigo-700 transition flex items-center justify-center gap-1"><Check size={10} /> Save</button>
+                                      <button onClick={() => setEditingSavingsTxn(null)} className="px-3 text-gray-400 hover:text-gray-600 text-[10px]">Cancel</button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                <div key={txn.id} className={`flex items-center gap-2 py-1.5 px-2 rounded-lg group ${dm('hover:bg-slate-600/50', 'hover:bg-white')} transition`}>
                                   {txn.type === "withdrawal" ? (
                                     <ArrowUpCircle size={14} className="text-rose-500 flex-shrink-0" />
                                   ) : (
@@ -4349,7 +4440,18 @@ export default function MaverickFinance() {
                                   <span className={`text-xs font-bold flex-shrink-0 ${txn.type === "withdrawal" ? 'text-rose-500' : 'text-emerald-500'}`}>
                                     {txn.type === "withdrawal" ? "−" : "+"}{fmt(txn.amount)}
                                   </span>
+                                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                                    <button onClick={() => setEditingSavingsTxn({ id: txn.id, description: txn.description, amount: txn.amount, type: txn.type })}
+                                      className={`p-1 rounded ${dm('hover:bg-slate-500', 'hover:bg-gray-200')} transition`} title="Edit">
+                                      <Settings size={12} className="text-gray-400" />
+                                    </button>
+                                    <button onClick={() => deleteSavingsTxn(g.id, txn.id)}
+                                      className={`p-1 rounded ${dm('hover:bg-rose-900/50', 'hover:bg-rose-50')} transition`} title="Delete">
+                                      <Trash2 size={12} className="text-rose-400" />
+                                    </button>
+                                  </div>
                                 </div>
+                                )
                               ))}
                             </div>
                           )}
