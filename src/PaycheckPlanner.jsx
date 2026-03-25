@@ -1165,25 +1165,39 @@ export default function PaycheckPlanner() {
   const debtStrategies = useMemo(() => {
     if (debts.length < 2) return null;
     const simulate = (sortFn) => {
-      let pool = debts.map(d => ({ ...d, bal: d.balance }));
+      let pool = debts.map(d => ({ ...d, bal: d.balance, monthlyMin: (d.minPayment + d.extraPayment) * freqMultiplier(d.frequency) }));
       let months = 0, totalInterest = 0;
       const payoffOrder = [];
-      const totalMonthlyPayment = debts.reduce((s, d) => s + (d.minPayment + d.extraPayment) * freqMultiplier(d.frequency), 0);
+      const totalMonthlyPayment = pool.reduce((s, d) => s + d.monthlyMin, 0);
       while (pool.some(d => d.bal > 0) && months < 600) {
         months++;
-        let extra = totalMonthlyPayment;
+        // Accrue interest
         pool.forEach(d => {
+          if (d.bal <= 0) return;
           const interest = d.bal * (d.rate / 100 / 12);
           totalInterest += interest;
           d.bal += interest;
         });
-        pool = pool.sort(sortFn);
+        // Step 1: Make minimum payments on all debts first
+        let extra = totalMonthlyPayment;
         pool.forEach(d => {
           if (d.bal <= 0) return;
+          const minPay = Math.min(d.bal, d.monthlyMin);
+          d.bal -= minPay;
+          extra -= minPay;
+          if (d.bal < 0.01) d.bal = 0;
+        });
+        // Step 2: Put remaining extra toward priority debt (sorted by strategy)
+        pool = pool.sort(sortFn);
+        pool.forEach(d => {
+          if (d.bal <= 0 || extra <= 0) return;
           const pay = Math.min(d.bal, extra);
           d.bal -= pay;
           extra -= pay;
           if (d.bal < 0.01) d.bal = 0;
+        });
+        // Track payoff order
+        pool.forEach(d => {
           if (d.bal === 0 && !payoffOrder.find(o => o.id === d.id)) {
             payoffOrder.push({ id: d.id, name: d.name, paidOffMonth: months });
           }
