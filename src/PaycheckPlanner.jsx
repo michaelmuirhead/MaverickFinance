@@ -1139,18 +1139,21 @@ export default function PaycheckPlanner() {
   }, [incomeSources, extraChecks, bills, debts, goals, incomeOverrides, plannerDismissedByMonth, plannerPaidByMonth, plannerManualByMonth, viewYear]);
 
   // Debt payoff timelines
+  const freqMultiplier = (freq) => freq === 'semimonthly' ? 2 : freq === 'biweekly' ? 26 / 12 : freq === 'weekly' ? 52 / 12 : 1;
+
   const debtTimelines = useMemo(() => {
     return debts.map((d) => {
       const monthlyRate = d.rate / 100 / 12;
-      const payment = d.minPayment + d.extraPayment;
-      if (payment <= 0) return { ...d, months: Infinity, totalInterest: Infinity };
+      const perPayment = d.minPayment + d.extraPayment;
+      const monthlyPayment = perPayment * freqMultiplier(d.frequency);
+      if (monthlyPayment <= 0) return { ...d, months: Infinity, totalInterest: Infinity };
       let balance = d.balance;
       let months = 0;
       let totalInterest = 0;
       while (balance > 0 && months < 600) {
         const interest = balance * monthlyRate;
         totalInterest += interest;
-        balance = balance + interest - payment;
+        balance = balance + interest - monthlyPayment;
         months++;
         if (balance < 0) balance = 0;
       }
@@ -1165,7 +1168,7 @@ export default function PaycheckPlanner() {
       let pool = debts.map(d => ({ ...d, bal: d.balance }));
       let months = 0, totalInterest = 0;
       const payoffOrder = [];
-      const totalMonthlyPayment = debts.reduce((s, d) => s + d.minPayment + d.extraPayment, 0);
+      const totalMonthlyPayment = debts.reduce((s, d) => s + (d.minPayment + d.extraPayment) * freqMultiplier(d.frequency), 0);
       while (pool.some(d => d.bal > 0) && months < 600) {
         months++;
         let extra = totalMonthlyPayment;
