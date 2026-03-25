@@ -386,6 +386,9 @@ const init = (key, fallback) => {
   return savedData[key];
 };
 
+// Payment frequency → monthly multiplier (pure utility, no deps)
+const freqMultiplier = (freq) => freq === 'semimonthly' ? 2 : freq === 'biweekly' ? 26 / 12 : freq === 'weekly' ? 52 / 12 : 1;
+
 export default function MaverickFinance() {
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
@@ -1141,7 +1144,6 @@ export default function MaverickFinance() {
   }, [incomeSources, extraChecks, bills, debts, goals, incomeOverrides, plannerDismissedByMonth, plannerPaidByMonth, plannerManualByMonth, viewYear]);
 
   // Debt payoff timelines
-  const freqMultiplier = (freq) => freq === 'semimonthly' ? 2 : freq === 'biweekly' ? 26 / 12 : freq === 'weekly' ? 52 / 12 : 1;
 
   const debtTimelines = useMemo(() => {
     return debts.map((d) => {
