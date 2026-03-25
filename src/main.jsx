@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import MaverickFinance from './PaycheckPlanner.jsx'
+import MaverickFinance from './MaverickFinance.jsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
