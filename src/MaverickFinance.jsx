@@ -417,6 +417,22 @@ if (savedData && !savedData._migrationV2) {
     });
   }
 
+  // --- V2b: Remove known sample/test expense entries from expensesByMonth ---
+  const sampleExpenseNames = ['car battery', 'emergency fund contribution', 'car repair', 'test', 'sample', 'example'];
+  const ebm2 = savedData.expensesByMonth;
+  if (ebm2 && typeof ebm2 === 'object') {
+    Object.keys(ebm2).forEach(mk => {
+      if (Array.isArray(ebm2[mk])) {
+        ebm2[mk] = ebm2[mk].filter(e => {
+          if (!e) return false;
+          const descLC = (e.description || '').trim().toLowerCase();
+          return !sampleExpenseNames.includes(descLC);
+        });
+      }
+    });
+    savedData.expensesByMonth = ebm2;
+  }
+
   savedData._migrationV1 = true;
   savedData._migrationV2 = true;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(savedData)); } catch {}
@@ -3583,10 +3599,16 @@ export default function MaverickFinance() {
                             ) : (
                               <div className="space-y-1 max-h-48 overflow-y-auto">
                                 {filtered.sort((a, b) => a.date.localeCompare(b.date)).map((e) => (
-                                  <div key={e.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-gray-50 text-sm">
+                                  <div key={e.id} className={`flex items-center gap-2 py-1.5 px-2 rounded-lg group ${dm('hover:bg-slate-700/50', 'hover:bg-gray-50')} text-sm`}>
                                     <span className="text-xs text-gray-400 w-12 flex-shrink-0">{new Date(e.date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-                                    <span className="flex-1 text-gray-700 truncate">{e.description}</span>
-                                    <span className="font-semibold text-gray-800 flex-shrink-0">{fmt(e.amount)}</span>
+                                    <span className={`flex-1 ${dm('text-gray-200', 'text-gray-700')} truncate`}>{e.description}</span>
+                                    <span className={`font-semibold ${dm('text-gray-200', 'text-gray-800')} flex-shrink-0`}>{fmt(e.amount)}</span>
+                                    {e.type === "manual" && (
+                                      <button onClick={() => removeExpense(e.id)}
+                                        className={`p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${dm('hover:bg-rose-900/50', 'hover:bg-rose-50')}`} title="Delete expense">
+                                        <Trash2 size={12} className="text-rose-400" />
+                                      </button>
+                                    )}
                                   </div>
                                 ))}
                               </div>
