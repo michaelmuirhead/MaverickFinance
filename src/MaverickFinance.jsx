@@ -4419,27 +4419,27 @@ export default function MaverickFinance() {
                       {txns.length > 0 && (
                         <div className="mt-3">
                           <button onClick={() => setExpandedGoalId(isExpanded ? null : g.id)}
-                            className={`w-full flex items-center justify-between text-xs font-medium py-1.5 px-2 rounded-lg transition ${dm('text-gray-400 hover:bg-slate-700', 'text-gray-500 hover:bg-gray-100')}`}>
+                            className={`w-full flex items-center justify-between text-xs font-medium py-1.5 px-2 rounded-lg transition ${dm('text-gray-500 hover:bg-gray-100', 'text-gray-400 hover:bg-slate-700')}`}>
                             <span>{txns.length} transaction{txns.length > 1 ? 's' : ''}</span>
                             <ChevronDown size={14} className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                           </button>
                           {isExpanded && (
-                            <div className={`mt-1 space-y-1 max-h-64 overflow-y-auto rounded-lg ${dm('bg-slate-700/30', 'bg-gray-50')} p-2`}>
+                            <div className={`mt-1 space-y-1 max-h-64 overflow-y-auto rounded-lg ${dm('bg-gray-50', 'bg-slate-700/30')} p-2`}>
                               {[...txns].reverse().map((txn) => (
                                 editingSavingsTxn && editingSavingsTxn.id === txn.id ? (
-                                  <div key={txn.id} className={`p-2 rounded-lg ${dm('bg-slate-600/50', 'bg-white')} space-y-2`}>
+                                  <div key={txn.id} className={`p-2 rounded-lg ${dm('bg-white', 'bg-slate-600/50')} space-y-2`}>
                                     <div className="flex gap-2">
                                       <select value={editingSavingsTxn.type} onChange={(e) => setEditingSavingsTxn({ ...editingSavingsTxn, type: e.target.value })}
-                                        className={`px-2 py-1 border rounded-lg text-xs ${dm('border-slate-500 bg-slate-700 text-white', 'border-gray-200')} focus:outline-none focus:ring-1 focus:ring-indigo-500`}>
+                                        className={`px-2 py-1 border rounded-lg text-xs ${dm('border-gray-200', 'border-slate-500 bg-slate-700 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`}>
                                         <option value="deposit">Deposit</option>
                                         <option value="withdrawal">Withdrawal</option>
                                       </select>
                                       <input value={editingSavingsTxn.description} onChange={(e) => setEditingSavingsTxn({ ...editingSavingsTxn, description: e.target.value })}
-                                        placeholder="Description" className={`flex-1 px-2 py-1 border rounded-lg text-xs ${dm('border-slate-500 bg-slate-700 text-white', 'border-gray-200')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                                        placeholder="Description" className={`flex-1 px-2 py-1 border rounded-lg text-xs ${dm('border-gray-200', 'border-slate-500 bg-slate-700 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
                                       <div className="relative w-24">
                                         <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]">$</span>
                                         <input type="number" value={editingSavingsTxn.amount} onChange={(e) => setEditingSavingsTxn({ ...editingSavingsTxn, amount: e.target.value })}
-                                          className={`w-full pl-5 pr-2 py-1 border rounded-lg text-xs ${dm('border-slate-500 bg-slate-700 text-white', 'border-gray-200')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                                          className={`w-full pl-5 pr-2 py-1 border rounded-lg text-xs ${dm('border-gray-200', 'border-slate-500 bg-slate-700 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
                                       </div>
                                     </div>
                                     <div className="flex gap-2">
@@ -4449,26 +4449,26 @@ export default function MaverickFinance() {
                                     </div>
                                   </div>
                                 ) : (
-                                <div key={txn.id} className={`flex items-center gap-2 py-1.5 px-2 rounded-lg group ${dm('hover:bg-slate-600/50', 'hover:bg-white')} transition`}>
+                                <div key={txn.id} className={`flex items-center gap-2 py-1.5 px-2 rounded-lg group ${dm('hover:bg-white', 'hover:bg-slate-600/50')} transition`}>
                                   {txn.type === "withdrawal" ? (
                                     <ArrowUpCircle size={14} className="text-rose-500 flex-shrink-0" />
                                   ) : (
                                     <ArrowDownCircle size={14} className="text-emerald-500 flex-shrink-0" />
                                   )}
                                   <div className="flex-1 min-w-0">
-                                    <p className={`text-xs font-medium ${dm('text-gray-200', 'text-gray-700')} truncate`}>{txn.description}</p>
+                                    <p className={`text-xs font-medium ${dm('text-gray-700', 'text-gray-200')} truncate`}>{txn.description}</p>
                                     <p className="text-[10px] text-gray-400">{new Date(txn.date + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                                   </div>
                                   <span className={`text-xs font-bold flex-shrink-0 ${txn.type === "withdrawal" ? 'text-rose-500' : 'text-emerald-500'}`}>
                                     {txn.type === "withdrawal" ? "−" : "+"}{fmt(txn.amount)}
                                   </span>
-                                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                                  <div className="flex gap-1 ml-1 flex-shrink-0">
                                     <button onClick={() => setEditingSavingsTxn({ id: txn.id, description: txn.description, amount: txn.amount, type: txn.type })}
-                                      className={`p-1 rounded ${dm('hover:bg-slate-500', 'hover:bg-gray-200')} transition`} title="Edit">
-                                      <Settings size={12} className="text-gray-400" />
+                                      className={`p-1 rounded ${dm('hover:bg-gray-200', 'hover:bg-slate-500')} transition`} title="Edit">
+                                      <Settings size={12} className={dm('text-gray-400', 'text-gray-400')} />
                                     </button>
                                     <button onClick={() => deleteSavingsTxn(g.id, txn.id)}
-                                      className={`p-1 rounded ${dm('hover:bg-rose-900/50', 'hover:bg-rose-50')} transition`} title="Delete">
+                                      className={`p-1 rounded ${dm('hover:bg-rose-50', 'hover:bg-rose-900/50')} transition`} title="Delete">
                                       <Trash2 size={12} className="text-rose-400" />
                                     </button>
                                   </div>
