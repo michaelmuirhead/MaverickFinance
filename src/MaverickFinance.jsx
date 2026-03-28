@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { DollarSign, TrendingUp, TrendingDown, Landmark, CreditCard, PiggyBank, Calendar, Plus, Trash2, Check, X, AlertCircle, Target, Wallet, Bell, ChevronLeft, ChevronRight, BarChart3, Zap, ClipboardList, Copy, CheckCircle, Circle, GripVertical, Sun, Moon, Settings, Download, Upload, StickyNote, Calculator, Clock, Heart, Shield, Search, ChevronDown, Minus, ArrowDownCircle, ArrowUpCircle, GitBranch, Repeat, Eye, Sparkles, CalendarDays, Star, Cloud, LogIn, LogOut, RefreshCw } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Landmark, CreditCard, PiggyBank, Calendar, Plus, Trash2, Check, X, AlertCircle, Target, Wallet, Bell, ChevronLeft, ChevronRight, BarChart3, Zap, ClipboardList, Copy, CheckCircle, Circle, GripVertical, Sun, Moon, Settings, Download, Upload, StickyNote, Calculator, Clock, Heart, Shield, Search, ChevronDown, Minus, ArrowDownCircle, ArrowUpCircle, GitBranch, Repeat, Eye, Sparkles, CalendarDays, Star, Cloud, LogIn, LogOut, RefreshCw, MessageCircle, Send, Bot, User } from "lucide-react";
 
 // ─── Firebase (optional cloud sync) ──────────────────────────────────────
 // To enable cloud sync: npm install firebase, then fill in your config from
@@ -102,6 +102,7 @@ const TABS = [
   { id: "insights", label: "Insights", icon: Sparkles },
   { id: "wishlist", label: "Wishlist", icon: Star },
   { id: "yearly", label: "Year", icon: BarChart3 },
+  { id: "maverick", label: "MaverickAI", icon: Bot },
 ];
 
 // ─── Generate paycheck dates for a given month ────────────────────────────
@@ -831,6 +832,204 @@ export default function MaverickFinance() {
   const [rolloverDraftAmt, setRolloverDraftAmt] = useState("");
   const [calendarSelectedDay, setCalendarSelectedDay] = useState(null);
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // MAVERICK AI COACH
+  // ═══════════════════════════════════════════════════════════════════════
+  const [maverickApiKey, setMaverickApiKey] = useState(init("maverickApiKey", ""));
+  const [maverickProvider, setMaverickProvider] = useState(init("maverickProvider", "openai"));
+  const [maverickMessages, setMaverickMessages] = useState(init("maverickMessages", []));
+  const [maverickInput, setMaverickInput] = useState("");
+  const [maverickLoading, setMaverickLoading] = useState(false);
+  const [showMaverickBubble, setShowMaverickBubble] = useState(false);
+  const maverickEndRef = useRef(null);
+
+  // Build a financial snapshot for Maverick's context
+  const buildFinancialContext = () => {
+    const totalMonthlyIncome = incomeSources.reduce((s, src) => {
+      const amt = parseFloat(src.amount) || 0;
+      const freq = src.frequency;
+      return s + amt * freqMultiplier(freq);
+    }, 0);
+    const totalBills = bills.reduce((s, b) => s + (parseFloat(b.amount) || 0), 0);
+    const totalDebtBal = debts.reduce((s, d) => s + (d.balance || 0), 0);
+    const totalDebtPay = debts.reduce((s, d) => s + ((d.minPayment + d.extraPayment) * freqMultiplier(d.frequency) || 0), 0);
+    const totalSaved = goals.reduce((s, g) => s + (g.saved || 0), 0);
+    const totalSavingsTargets = goals.reduce((s, g) => s + (g.target || 0), 0);
+    const totalMonthlySavings = goals.reduce((s, g) => s + (g.monthlyContribution || 0), 0);
+    const totalAssetVal = assets.reduce((s, a) => s + (a.balance || 0), 0);
+    const totalLiabilityVal = liabilities.reduce((s, l) => s + (l.balance || 0), 0);
+    const netWorth = totalAssetVal - totalLiabilityVal;
+    const monthlyExpenses = (expensesByMonth[`${viewYear}-${String(viewMonth + 1).padStart(2, '0')}`] || []).reduce((s, e) => s + (e.amount || 0), 0);
+    const savingsRate = totalMonthlyIncome > 0 ? ((totalMonthlySavings / totalMonthlyIncome) * 100).toFixed(1) : 0;
+    const dti = totalMonthlyIncome > 0 ? ((totalDebtPay / totalMonthlyIncome) * 100).toFixed(1) : 0;
+
+    const creditDebts = debts.filter(d => d.debtType === 'credit_card' || d.debtType === 'line_of_credit');
+    const totalCreditUsed = creditDebts.reduce((s, d) => s + d.balance, 0);
+    const totalCreditLimit = creditDebts.reduce((s, d) => s + (d.creditLimit || 0), 0);
+    const creditUtil = totalCreditLimit > 0 ? ((totalCreditUsed / totalCreditLimit) * 100).toFixed(1) : 'N/A';
+
+    const activeSubs = subscriptions.filter(s => s.active);
+    const monthlySubs = activeSubs.reduce((s, sub) => {
+      const amt = sub.amount || 0;
+      return s + (sub.frequency === 'yearly' ? amt / 12 : sub.frequency === 'quarterly' ? amt / 3 : amt);
+    }, 0);
+
+    return `
+=== FINANCIAL SNAPSHOT (${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}) ===
+
+INCOME:
+- Monthly income: $${totalMonthlyIncome.toFixed(2)}
+- Sources: ${incomeSources.map(s => `${s.name || 'Unnamed'} ($${s.amount}/${s.frequency})`).join(', ') || 'None set up'}
+
+BILLS & FIXED EXPENSES:
+- Total monthly bills: $${totalBills.toFixed(2)}
+- Bills: ${bills.map(b => `${b.name} ($${b.amount}, due day ${b.dueDay})`).join(', ') || 'None'}
+
+DEBT:
+- Total debt balance: $${totalDebtBal.toFixed(2)}
+- Monthly debt payments: $${totalDebtPay.toFixed(2)}
+- Debt-to-Income ratio: ${dti}%
+- Strategy: ${debtStrategy}
+- Individual debts: ${debts.map(d => `${d.name} ($${d.balance} at ${d.rate}% APR, ${d.debtType || 'loan'}, paying $${d.minPayment + d.extraPayment}/${d.frequency})`).join('; ') || 'None'}
+
+CREDIT:
+- Credit utilization: ${creditUtil}%${totalCreditLimit > 0 ? ` ($${totalCreditUsed.toFixed(2)} of $${totalCreditLimit.toFixed(2)} limit)` : ''}
+- Credit accounts: ${creditDebts.map(d => `${d.name}: $${d.balance}/$${d.creditLimit || 0}`).join(', ') || 'None'}
+
+SAVINGS:
+- Total saved: $${totalSaved.toFixed(2)} of $${totalSavingsTargets.toFixed(2)} targets
+- Monthly savings contributions: $${totalMonthlySavings.toFixed(2)}
+- Savings rate: ${savingsRate}%
+- Goals: ${goals.map(g => `${g.name} ($${g.saved.toFixed(2)}/$${g.target}, $${g.monthlyContribution}/mo)`).join('; ') || 'None'}
+
+SPENDING (Current Month):
+- Manual expenses logged: $${monthlyExpenses.toFixed(2)}
+- Subscriptions: $${monthlySubs.toFixed(2)}/mo (${activeSubs.length} active)
+${activeSubs.length > 0 ? '- Active subs: ' + activeSubs.map(s => `${s.name} ($${s.amount}/${s.frequency})`).join(', ') : ''}
+
+NET WORTH:
+- Assets: $${totalAssetVal.toFixed(2)}
+- Liabilities: $${totalLiabilityVal.toFixed(2)}
+- Net worth: $${netWorth.toFixed(2)}
+${netWorthHistory.length > 1 ? `- Trend: ${netWorthHistory[netWorthHistory.length - 1]?.netWorth > netWorthHistory[netWorthHistory.length - 2]?.netWorth ? 'Increasing' : 'Decreasing'}` : ''}
+
+CASH FLOW:
+- Starting balance: $${cashFlowStartBal}
+- After bills & debt: $${(totalMonthlyIncome - totalBills - totalDebtPay).toFixed(2)} remaining
+- After savings: $${(totalMonthlyIncome - totalBills - totalDebtPay - totalMonthlySavings).toFixed(2)} discretionary
+
+WISHLIST:
+${wishlist.length > 0 ? wishlist.map(w => `- ${w.name}: $${w.cost} (priority: ${w.priority || 'medium'})`).join('\n') : '- No wishlist items'}
+`.trim();
+  };
+
+  const MAVERICK_SYSTEM_PROMPT = `You are MaverickAI, a sharp and supportive AI financial coach built into the MaverickFinance app. You have direct access to the user's real financial data (provided below).
+
+Your personality:
+- Confident but approachable — like a smart friend who happens to be great with money
+- Direct and actionable — don't just describe problems, give specific steps
+- Encouraging but honest — celebrate wins, but don't sugarcoat bad numbers
+- Use the user's actual dollar amounts in your advice
+
+Your capabilities:
+1. FINANCIAL HEALTH ANALYSIS — Score and assess their overall financial position
+2. ACTION PLANS — Create specific, timelined plans (e.g., "90-Day Debt Attack", "Emergency Fund Sprint")
+3. SPENDING INSIGHTS — Spot patterns, flag concerns, find optimization opportunities
+4. Q&A — Answer specific questions using their real data ("Can I afford X?", "When will I be debt-free?")
+
+Rules:
+- Always reference their ACTUAL numbers, not generic advice
+- Keep responses concise but thorough — use bullet points for action items
+- When giving plans, include specific dollar amounts and timelines
+- If their data is incomplete, mention what would help you give better advice
+- Never hallucinate data — only use what's in the snapshot
+- Use $ formatting for all money amounts
+- Be encouraging — personal finance is hard and they're already doing the right thing by tracking
+
+The user's current financial data:
+`;
+
+  const sendToMaverick = async (userMessage, messages = maverickMessages) => {
+    if (!maverickApiKey) return;
+    setMaverickLoading(true);
+    const newMessages = [...messages, { role: "user", content: userMessage }];
+    setMaverickMessages(newMessages);
+    setMaverickInput("");
+
+    const financialContext = buildFinancialContext();
+    const systemMsg = MAVERICK_SYSTEM_PROMPT + financialContext;
+
+    try {
+      let assistantReply = "";
+
+      if (maverickProvider === "openai") {
+        const res = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${maverickApiKey}` },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [{ role: "system", content: systemMsg }, ...newMessages.slice(-20).map(m => ({ role: m.role, content: m.content }))],
+            max_tokens: 2000,
+            temperature: 0.7
+          })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message || "API error");
+        assistantReply = data.choices?.[0]?.message?.content || "I couldn't generate a response. Please try again.";
+      } else if (maverickProvider === "anthropic") {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": maverickApiKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true"
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 2000,
+            system: systemMsg,
+            messages: newMessages.slice(-20).map(m => ({ role: m.role, content: m.content }))
+          })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message || "API error");
+        assistantReply = data.content?.[0]?.text || "I couldn't generate a response. Please try again.";
+      } else if (maverickProvider === "gemini") {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${maverickApiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: systemMsg + "\n\nConversation so far:\n" + newMessages.slice(-20).map(m => `${m.role}: ${m.content}`).join("\n") }] }],
+            generationConfig: { maxOutputTokens: 2000, temperature: 0.7 }
+          })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message || "API error");
+        assistantReply = data.candidates?.[0]?.content?.parts?.[0]?.text || "I couldn't generate a response. Please try again.";
+      }
+
+      setMaverickMessages(prev => [...prev, { role: "assistant", content: assistantReply }]);
+    } catch (err) {
+      setMaverickMessages(prev => [...prev, { role: "assistant", content: `⚠️ Error: ${err.message}. Please check your API key and try again.` }]);
+    } finally {
+      setMaverickLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (maverickEndRef.current) maverickEndRef.current.scrollIntoView({ behavior: "smooth" });
+  }, [maverickMessages, maverickLoading]);
+
+  const maverickQuickPrompts = [
+    { label: "📊 Health Check", prompt: "Give me a full financial health analysis. Score my finances across debt, savings, spending, and income. Tell me my biggest strengths and what needs the most work." },
+    { label: "🎯 90-Day Plan", prompt: "Create a specific 90-day financial action plan based on my current situation. Include weekly milestones and exact dollar amounts." },
+    { label: "💸 Spending Review", prompt: "Analyze my spending patterns. Where am I overspending? What subscriptions could I cut? Where can I find extra money?" },
+    { label: "🏦 Debt Strategy", prompt: "What's the fastest way to pay off my debt? Compare strategies and tell me exactly how to attack it with my current income." },
+    { label: "🛡️ Emergency Fund", prompt: "How's my emergency fund looking? Create a plan to build it up to 3-6 months of expenses with specific monthly targets." },
+    { label: "💰 Can I afford...?", prompt: "Based on my current finances, how much can I comfortably afford to spend on a major purchase without derailing my financial goals?" },
+  ];
+
   // ─── Tab order logic (Feature 2: Drag-to-Reorder Tabs) ───
   const orderedTabs = useMemo(() => {
     if (!tabOrder) return TABS;
@@ -849,7 +1048,8 @@ export default function MaverickFinance() {
         assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
         payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
         wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges,
-        rolloverEnabled, rolloverOverrides, creditHistory
+        rolloverEnabled, rolloverOverrides, creditHistory,
+        maverickApiKey, maverickProvider, maverickMessages
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       saveToCloud(data);
@@ -860,7 +1060,8 @@ export default function MaverickFinance() {
     assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
     payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
     wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges,
-    rolloverEnabled, rolloverOverrides, creditHistory]);
+    rolloverEnabled, rolloverOverrides, creditHistory,
+    maverickApiKey, maverickProvider, maverickMessages]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // DERIVED DATA for the viewed month
@@ -7196,7 +7397,271 @@ export default function MaverickFinance() {
           </>
           );
         })()}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* MAVERICK AI COACH TAB                                        */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {tab === "maverick" && (
+          <div className="space-y-4">
+            {/* API Key Setup */}
+            {!maverickApiKey && (
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                <div className="text-center py-6 space-y-4">
+                  <div className={`w-16 h-16 mx-auto rounded-2xl ${dm('bg-indigo-100', 'bg-indigo-900/50')} flex items-center justify-center`}>
+                    <Bot size={32} className="text-indigo-500" />
+                  </div>
+                  <div>
+                    <h2 className={`text-xl font-bold ${dm('text-gray-800', 'text-white')}`}>Meet MaverickAI</h2>
+                    <p className={`text-sm mt-1 ${dm('text-gray-500', 'text-gray-400')}`}>Your AI financial coach — powered by your real data</p>
+                  </div>
+                  <p className={`text-xs ${dm('text-gray-400', 'text-gray-500')} max-w-md mx-auto`}>
+                    MaverickAI analyzes your income, debt, savings, and spending to give personalized advice. Connect an AI provider to get started.
+                  </p>
+                  <div className="max-w-sm mx-auto space-y-3 pt-2">
+                    <select value={maverickProvider} onChange={(e) => setMaverickProvider(e.target.value)}
+                      className={`w-full px-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`}>
+                      <option value="openai">OpenAI (GPT-4o Mini)</option>
+                      <option value="anthropic">Anthropic (Claude Sonnet)</option>
+                      <option value="gemini">Google (Gemini Flash)</option>
+                    </select>
+                    <div className="relative">
+                      <input type="password" placeholder={`Paste your ${maverickProvider === 'openai' ? 'OpenAI' : maverickProvider === 'anthropic' ? 'Anthropic' : 'Google AI'} API key`}
+                        value={maverickApiKey} onChange={(e) => setMaverickApiKey(e.target.value)}
+                        className={`w-full px-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                    </div>
+                    <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>
+                      Your key stays in your browser — never sent to our servers. Only used for direct API calls.
+                    </p>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* Chat Interface */}
+            {maverickApiKey && (
+              <>
+                {/* Settings bar */}
+                <div className={`flex items-center justify-between px-3 py-2 rounded-xl ${dm('bg-white border border-gray-100', 'bg-slate-800 border border-slate-700')}`}>
+                  <div className="flex items-center gap-2">
+                    <Bot size={18} className="text-indigo-500" />
+                    <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-white')}`}>MaverickAI</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${dm('bg-emerald-100 text-emerald-700', 'bg-emerald-900/50 text-emerald-400')}`}>
+                      {maverickProvider === 'openai' ? 'GPT-4o Mini' : maverickProvider === 'anthropic' ? 'Claude Sonnet' : 'Gemini Flash'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => { setMaverickMessages([]); }}
+                      className={`text-[10px] px-2 py-1 rounded-lg ${dm('text-gray-400 hover:bg-gray-100', 'text-gray-500 hover:bg-slate-700')} transition`}>
+                      Clear Chat
+                    </button>
+                    <button onClick={() => setMaverickApiKey("")}
+                      className={`text-[10px] px-2 py-1 rounded-lg ${dm('text-gray-400 hover:bg-gray-100', 'text-gray-500 hover:bg-slate-700')} transition`}>
+                      Change Key
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick prompts */}
+                {maverickMessages.length === 0 && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {maverickQuickPrompts.map((qp, i) => (
+                      <button key={i} onClick={() => sendToMaverick(qp.prompt)}
+                        className={`text-left p-3 rounded-xl border transition ${dm('bg-white border-gray-100 hover:border-indigo-300 hover:shadow-md', 'bg-slate-800 border-slate-700 hover:border-indigo-500')}`}>
+                        <span className="text-lg">{qp.label.split(' ')[0]}</span>
+                        <p className={`text-xs font-medium mt-1 ${dm('text-gray-700', 'text-gray-200')}`}>{qp.label.split(' ').slice(1).join(' ')}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Messages */}
+                <div className={`rounded-xl ${dm('bg-white border border-gray-100', 'bg-slate-800 border border-slate-700')} overflow-hidden`}>
+                  <div className="max-h-[60vh] overflow-y-auto p-4 space-y-4">
+                    {maverickMessages.length === 0 && (
+                      <div className="text-center py-12">
+                        <Bot size={40} className={`mx-auto ${dm('text-gray-300', 'text-gray-600')}`} />
+                        <p className={`text-sm mt-3 ${dm('text-gray-400', 'text-gray-500')}`}>Ask MaverickAI anything about your finances</p>
+                        <p className={`text-xs mt-1 ${dm('text-gray-300', 'text-gray-600')}`}>or tap a quick prompt above to get started</p>
+                      </div>
+                    )}
+                    {maverickMessages.map((msg, i) => (
+                      <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        {msg.role === 'assistant' && (
+                          <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center ${dm('bg-indigo-100', 'bg-indigo-900/50')}`}>
+                            <Bot size={16} className="text-indigo-500" />
+                          </div>
+                        )}
+                        <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                          msg.role === 'user'
+                            ? 'bg-indigo-600 text-white rounded-br-md'
+                            : dm('bg-gray-50 text-gray-700 rounded-bl-md', 'bg-slate-700 text-gray-200 rounded-bl-md')
+                        }`}>
+                          {msg.content.split('\n').map((line, li) => (
+                            <span key={li}>
+                              {line.startsWith('**') && line.endsWith('**') ? <strong>{line.slice(2, -2)}</strong>
+                                : line.startsWith('- ') ? <span className="block ml-2">• {line.slice(2)}</span>
+                                : line.startsWith('• ') ? <span className="block ml-2">{line}</span>
+                                : line === '' ? <br /> : line}
+                              {li < msg.content.split('\n').length - 1 && !line.startsWith('- ') && !line.startsWith('• ') && line !== '' && <br />}
+                            </span>
+                          ))}
+                        </div>
+                        {msg.role === 'user' && (
+                          <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center bg-indigo-600`}>
+                            <User size={16} className="text-white" />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {maverickLoading && (
+                      <div className="flex gap-3 justify-start">
+                        <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center ${dm('bg-indigo-100', 'bg-indigo-900/50')}`}>
+                          <Bot size={16} className="text-indigo-500" />
+                        </div>
+                        <div className={`rounded-2xl rounded-bl-md px-4 py-3 ${dm('bg-gray-50', 'bg-slate-700')}`}>
+                          <div className="flex gap-1.5">
+                            <span className={`w-2 h-2 rounded-full ${dm('bg-gray-300', 'bg-gray-500')} animate-bounce`} style={{ animationDelay: '0ms' }} />
+                            <span className={`w-2 h-2 rounded-full ${dm('bg-gray-300', 'bg-gray-500')} animate-bounce`} style={{ animationDelay: '150ms' }} />
+                            <span className={`w-2 h-2 rounded-full ${dm('bg-gray-300', 'bg-gray-500')} animate-bounce`} style={{ animationDelay: '300ms' }} />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={maverickEndRef} />
+                  </div>
+
+                  {/* Input */}
+                  <div className={`border-t ${dm('border-gray-100', 'border-slate-700')} p-3`}>
+                    <div className="flex gap-2">
+                      <input
+                        value={maverickInput}
+                        onChange={(e) => setMaverickInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && maverickInput.trim() && !maverickLoading) sendToMaverick(maverickInput.trim()); }}
+                        placeholder="Ask MaverickAI anything..."
+                        className={`flex-1 px-4 py-2.5 rounded-xl text-sm ${dm('bg-gray-50 border border-gray-200 text-gray-700', 'bg-slate-700 border border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`}
+                        disabled={maverickLoading}
+                      />
+                      <button
+                        onClick={() => { if (maverickInput.trim() && !maverickLoading) sendToMaverick(maverickInput.trim()); }}
+                        disabled={!maverickInput.trim() || maverickLoading}
+                        className={`px-4 py-2.5 rounded-xl transition ${maverickInput.trim() && !maverickLoading ? 'bg-indigo-600 text-white hover:bg-indigo-700' : dm('bg-gray-100 text-gray-300', 'bg-slate-700 text-gray-500')} flex items-center gap-1.5`}>
+                        <Send size={16} />
+                      </button>
+                    </div>
+                    {maverickMessages.length > 0 && (
+                      <div className="flex gap-1.5 mt-2 flex-wrap">
+                        {[
+                          "What should I focus on?",
+                          "How can I save more?",
+                          "Am I on track?",
+                          "Break down my spending"
+                        ].map((q, i) => (
+                          <button key={i} onClick={() => { if (!maverickLoading) sendToMaverick(q); }}
+                            className={`text-[10px] px-2.5 py-1 rounded-full transition ${dm('bg-gray-100 text-gray-500 hover:bg-indigo-100 hover:text-indigo-600', 'bg-slate-700 text-gray-400 hover:bg-indigo-900/50 hover:text-indigo-400')}`}>
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </main>
+
+      {/* ═══════ MAVERICK FLOATING CHAT BUBBLE ═══════ */}
+      {tab !== "maverick" && maverickApiKey && (
+        <>
+          {showMaverickBubble && (
+            <div className={`fixed bottom-24 right-6 z-50 w-96 max-h-[70vh] rounded-2xl shadow-2xl border overflow-hidden flex flex-col ${dm('bg-white border-gray-200', 'bg-slate-800 border-slate-700')}`}>
+              <div className={`flex items-center justify-between px-4 py-3 border-b ${dm('border-gray-100 bg-indigo-50', 'border-slate-700 bg-indigo-900/30')}`}>
+                <div className="flex items-center gap-2">
+                  <Bot size={18} className="text-indigo-500" />
+                  <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-white')}`}>MaverickAI</span>
+                </div>
+                <button onClick={() => setShowMaverickBubble(false)} className={`${dm('text-gray-400 hover:text-gray-600', 'text-gray-500 hover:text-gray-300')}`}><X size={16} /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 space-y-3 max-h-[50vh]">
+                {maverickMessages.length === 0 && (
+                  <div className="text-center py-6">
+                    <Bot size={28} className={dm('text-gray-300', 'text-gray-600')} />
+                    <p className={`text-xs mt-2 ${dm('text-gray-400', 'text-gray-500')}`}>Ask me anything about your finances</p>
+                    <div className="flex flex-wrap gap-1.5 justify-center mt-3">
+                      {maverickQuickPrompts.slice(0, 4).map((qp, i) => (
+                        <button key={i} onClick={() => sendToMaverick(qp.prompt)}
+                          className={`text-[10px] px-2.5 py-1.5 rounded-lg transition ${dm('bg-gray-100 text-gray-600 hover:bg-indigo-100 hover:text-indigo-600', 'bg-slate-700 text-gray-400 hover:bg-indigo-900/50 hover:text-indigo-400')}`}>
+                          {qp.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {maverickMessages.map((msg, i) => (
+                  <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {msg.role === 'assistant' && (
+                      <div className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center ${dm('bg-indigo-100', 'bg-indigo-900/50')}`}>
+                        <Bot size={12} className="text-indigo-500" />
+                      </div>
+                    )}
+                    <div className={`max-w-[85%] rounded-xl px-3 py-2 text-xs leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-indigo-600 text-white rounded-br-sm'
+                        : dm('bg-gray-50 text-gray-700 rounded-bl-sm', 'bg-slate-700 text-gray-200 rounded-bl-sm')
+                    }`}>
+                      {msg.content.split('\n').map((line, li) => (
+                        <span key={li}>
+                          {line.startsWith('**') && line.endsWith('**') ? <strong>{line.slice(2, -2)}</strong>
+                            : line.startsWith('- ') ? <span className="block ml-2">• {line.slice(2)}</span>
+                            : line.startsWith('• ') ? <span className="block ml-2">{line}</span>
+                            : line === '' ? <br /> : line}
+                          {li < msg.content.split('\n').length - 1 && !line.startsWith('- ') && !line.startsWith('• ') && line !== '' && <br />}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {maverickLoading && (
+                  <div className="flex gap-2 justify-start">
+                    <div className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center ${dm('bg-indigo-100', 'bg-indigo-900/50')}`}>
+                      <Bot size={12} className="text-indigo-500" />
+                    </div>
+                    <div className={`rounded-xl rounded-bl-sm px-3 py-2 ${dm('bg-gray-50', 'bg-slate-700')}`}>
+                      <div className="flex gap-1">
+                        <span className={`w-1.5 h-1.5 rounded-full ${dm('bg-gray-300', 'bg-gray-500')} animate-bounce`} style={{ animationDelay: '0ms' }} />
+                        <span className={`w-1.5 h-1.5 rounded-full ${dm('bg-gray-300', 'bg-gray-500')} animate-bounce`} style={{ animationDelay: '150ms' }} />
+                        <span className={`w-1.5 h-1.5 rounded-full ${dm('bg-gray-300', 'bg-gray-500')} animate-bounce`} style={{ animationDelay: '300ms' }} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className={`border-t ${dm('border-gray-100', 'border-slate-700')} p-2`}>
+                <div className="flex gap-2">
+                  <input
+                    value={maverickInput}
+                    onChange={(e) => setMaverickInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && maverickInput.trim() && !maverickLoading) sendToMaverick(maverickInput.trim()); }}
+                    placeholder="Ask MaverickAI..."
+                    className={`flex-1 px-3 py-2 rounded-lg text-xs ${dm('bg-gray-50 border border-gray-200 text-gray-700', 'bg-slate-700 border border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`}
+                    disabled={maverickLoading}
+                  />
+                  <button
+                    onClick={() => { if (maverickInput.trim() && !maverickLoading) sendToMaverick(maverickInput.trim()); }}
+                    disabled={!maverickInput.trim() || maverickLoading}
+                    className={`px-3 py-2 rounded-lg transition ${maverickInput.trim() && !maverickLoading ? 'bg-indigo-600 text-white hover:bg-indigo-700' : dm('bg-gray-100 text-gray-300', 'bg-slate-700 text-gray-500')}`}>
+                    <Send size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          <button onClick={() => setShowMaverickBubble(!showMaverickBubble)}
+            className={`fixed bottom-6 left-6 z-50 w-12 h-12 rounded-full shadow-lg flex items-center justify-center transition-all ${showMaverickBubble ? 'bg-indigo-700 shadow-indigo-300' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200 hover:shadow-xl'}`}>
+            {showMaverickBubble ? <X size={20} className="text-white" /> : <MessageCircle size={20} className="text-white" />}
+          </button>
+        </>
+      )}
 
       {/* ═══════ FLOATING QUICK-ADD EXPENSE BUTTON ═══════ */}
       {!quickAdd && (
