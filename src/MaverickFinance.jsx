@@ -813,6 +813,124 @@ export default function MaverickFinance() {
   const [debtStrategy, setDebtStrategy] = useState(init("debtStrategy", "avalanche"));
 
   // ═══════════════════════════════════════════════════════════════════════
+  // FICO SCORE ESTIMATOR
+  // ═══════════════════════════════════════════════════════════════════════
+  const [ficoInputs, setFicoInputs] = useState(init("ficoInputs", {
+    paymentHistory: "excellent",  // excellent, good, fair, poor
+    oldestAccountYears: 5,
+    totalAccounts: 5,
+    hardInquiries: 1,
+    missedPayments: 0,
+    hasCollections: false,
+    hasBankruptcy: false,
+  }));
+  const [ficoWhatIf, setFicoWhatIf] = useState(null); // { action: string, delta: number }
+
+  const estimateFico = (inputs, debtData) => {
+    // Credit utilization from actual debt data
+    const creditDebts = debtData.filter(d => d.debtType === 'credit_card' || d.debtType === 'line_of_credit');
+    const totalUsed = creditDebts.reduce((s, d) => s + d.balance, 0);
+    const totalLimit = creditDebts.reduce((s, d) => s + (d.creditLimit || 0), 0);
+    const utilization = totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
+
+    let score = 300; // Base
+
+    // Payment history (35% of FICO = max ~247 points)
+    const payHistMap = { excellent: 247, good: 210, fair: 160, poor: 100 };
+    score += payHistMap[inputs.paymentHistory] || 160;
+    score -= Math.min(inputs.missedPayments * 40, 150);
+
+    // Credit utilization (30% = max ~212 points)
+    if (utilization <= 1) score += 212;
+    else if (utilization <= 10) score += 195;
+    else if (utilization <= 20) score += 175;
+    else if (utilization <= 30) score += 155;
+    else if (utilization <= 50) score += 120;
+    else if (utilization <= 75) score += 80;
+    else score += 40;
+
+    // Credit age (15% = max ~106 points)
+    const age = inputs.oldestAccountYears || 0;
+    if (age >= 20) score += 106;
+    else if (age >= 10) score += 90;
+    else if (age >= 7) score += 75;
+    else if (age >= 5) score += 60;
+    else if (age >= 3) score += 45;
+    else if (age >= 1) score += 30;
+    else score += 15;
+
+    // Credit mix (10% = max ~71 points)
+    const accts = inputs.totalAccounts || 0;
+    const hasMortgage = debtData.some(d => d.name && d.name.toLowerCase().includes('mortgage'));
+    const hasAutoLoan = debtData.some(d => d.debtType === 'loan' && d.name && (d.name.toLowerCase().includes('car') || d.name.toLowerCase().includes('auto')));
+    const hasCards = creditDebts.length > 0;
+    const mixTypes = [hasMortgage, hasAutoLoan, hasCards, debtData.some(d => d.debtType === 'loan')].filter(Boolean).length;
+    score += Math.min(mixTypes * 18, 71);
+
+    // New credit / inquiries (10% = max ~71 points)
+    const inq = inputs.hardInquiries || 0;
+    if (inq === 0) score += 71;
+    else if (inq === 1) score += 60;
+    else if (inq <= 3) score += 45;
+    else if (inq <= 5) score += 25;
+    else score += 10;
+
+    // Negative marks
+    if (inputs.hasCollections) score -= 75;
+    if (inputs.hasBankruptcy) score -= 150;
+
+    return Math.max(300, Math.min(850, Math.round(score)));
+  };
+
+  const ficoScore = useMemo(() => estimateFico(ficoInputs, debts), [ficoInputs, debts]);
+
+  const ficoWhatIfScenarios = useMemo(() => {
+    const creditDebts = debts.filter(d => d.debtType === 'credit_card' || d.debtType === 'line_of_credit');
+    const totalUsed = creditDebts.reduce((s, d) => s + d.balance, 0);
+    const totalLimit = creditDebts.reduce((s, d) => s + (d.creditLimit || 0), 0);
+    const scenarios = [];
+
+    // Pay off all credit cards
+    if (totalUsed > 0) {
+      const paidOff = debts.map(d => (d.debtType === 'credit_card' || d.debtType === 'line_of_credit') ? { ...d, balance: 0 } : d);
+      const newScore = estimateFico(ficoInputs, paidOff);
+      scenarios.push({ label: 'Pay off all credit cards', icon: '💳', newScore, delta: newScore - ficoScore });
+    }
+
+    // Pay down to 10% utilization
+    if (totalLimit > 0 && (totalUsed / totalLimit) > 0.1) {
+      const target10 = totalLimit * 0.1;
+      const ratio = target10 / (totalUsed || 1);
+      const reduced = debts.map(d => (d.debtType === 'credit_card' || d.debtType === 'line_of_credit') ? { ...d, balance: Math.round(d.balance * ratio) } : d);
+      const newScore = estimateFico(ficoInputs, reduced);
+      scenarios.push({ label: 'Reduce utilization to 10%', icon: '📉', newScore, delta: newScore - ficoScore });
+    }
+
+    // Open a new credit card (+$5000 limit)
+    if (totalLimit > 0) {
+      const withNewCard = [...debts, { debtType: 'credit_card', balance: 0, creditLimit: 5000, minPayment: 0, extraPayment: 0, rate: 0 }];
+      const newInputs = { ...ficoInputs, totalAccounts: (ficoInputs.totalAccounts || 0) + 1, hardInquiries: (ficoInputs.hardInquiries || 0) + 1 };
+      const newScore = estimateFico(newInputs, withNewCard);
+      scenarios.push({ label: 'Open new card ($5K limit)', icon: '🆕', newScore, delta: newScore - ficoScore });
+    }
+
+    // Miss a payment
+    const missInputs = { ...ficoInputs, missedPayments: (ficoInputs.missedPayments || 0) + 1, paymentHistory: ficoInputs.paymentHistory === 'excellent' ? 'good' : ficoInputs.paymentHistory === 'good' ? 'fair' : 'poor' };
+    const missScore = estimateFico(missInputs, debts);
+    scenarios.push({ label: 'Miss a payment', icon: '⚠️', newScore: missScore, delta: missScore - ficoScore });
+
+    // Remove collections
+    if (ficoInputs.hasCollections) {
+      const noCollInputs = { ...ficoInputs, hasCollections: false };
+      const noCollDebts = debts.filter(d => d.debtType !== 'collections');
+      const newScore = estimateFico(noCollInputs, noCollDebts);
+      scenarios.push({ label: 'Remove collections from report', icon: '🧹', newScore, delta: newScore - ficoScore });
+    }
+
+    return scenarios;
+  }, [ficoInputs, debts, ficoScore]);
+
+  // ═══════════════════════════════════════════════════════════════════════
   // GLOBAL SEARCH
   // ═══════════════════════════════════════════════════════════════════════
   const [globalSearch, setGlobalSearch] = useState("");
@@ -1021,6 +1139,28 @@ The user's current financial data:
     if (maverickEndRef.current) maverickEndRef.current.scrollIntoView({ behavior: "smooth" });
   }, [maverickMessages, maverickLoading]);
 
+  // Prevent iPad/iOS scroll-jump when focusing inputs (especially with Bluetooth keyboard)
+  useEffect(() => {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (!isIOS) return;
+    const handler = (e) => {
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+        // Prevent the default scroll-into-view behavior
+        requestAnimationFrame(() => {
+          const scrollY = window.scrollY;
+          setTimeout(() => {
+            if (Math.abs(window.scrollY - scrollY) > 200) {
+              window.scrollTo({ top: scrollY, behavior: 'instant' });
+            }
+          }, 50);
+        });
+      }
+    };
+    document.addEventListener('focusin', handler, { passive: true });
+    return () => document.removeEventListener('focusin', handler);
+  }, []);
+
   const maverickQuickPrompts = [
     { label: "📊 Health Check", prompt: "Give me a full financial health analysis. Score my finances across debt, savings, spending, and income. Tell me my biggest strengths and what needs the most work." },
     { label: "🎯 90-Day Plan", prompt: "Create a specific 90-day financial action plan based on my current situation. Include weekly milestones and exact dollar amounts." },
@@ -1049,7 +1189,7 @@ The user's current financial data:
         payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
         wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges,
         rolloverEnabled, rolloverOverrides, creditHistory,
-        maverickApiKey, maverickProvider, maverickMessages
+        maverickApiKey, maverickProvider, maverickMessages, ficoInputs
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       saveToCloud(data);
@@ -1061,7 +1201,7 @@ The user's current financial data:
     payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
     wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges,
     rolloverEnabled, rolloverOverrides, creditHistory,
-    maverickApiKey, maverickProvider, maverickMessages]);
+    maverickApiKey, maverickProvider, maverickMessages, ficoInputs]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // DERIVED DATA for the viewed month
@@ -1719,7 +1859,7 @@ The user's current financial data:
     });
     setCreditHistory(updated);
   };
-  const startEditDebt = (d) => { setDebtDraft({ name: d.name, balance: d.balance, rate: d.rate, minPayment: d.minPayment, extraPayment: d.extraPayment, frequency: d.frequency || "monthly", dueDay: d.dueDay || 1, debtType: d.debtType || "loan", creditLimit: d.creditLimit || "" }); setEditingDebtId(d.id); };
+  const startEditDebt = (d) => { setDebtDraft({ name: d.name, balance: d.balance, rate: d.rate, minPayment: d.minPayment, extraPayment: d.extraPayment, frequency: d.frequency || "monthly", dueDay: d.dueDay || 1, debtType: d.debtType || "loan", creditLimit: d.creditLimit || "", hasPaymentPlan: !!d.hasPaymentPlan }); setEditingDebtId(d.id); };
 
   const updateGoal = (id, updates) => { setGoals(goals.map(g => g.id === id ? { ...g, ...updates } : g)); setEditingGoalId(null); setGoalDraft(null); };
   const startEditGoal = (g) => { setGoalDraft({ name: g.name, target: g.target, saved: g.saved, monthlyContribution: g.monthlyContribution }); setEditingGoalId(g.id); };
@@ -1785,8 +1925,9 @@ The user's current financial data:
         dateSortKey: `${viewYear}-${mm}-${dayStr}`, dateLabel: `Due ${b.dueDay}` });
     });
     // Debt payments — frequency-aware (monthly, semimonthly, biweekly, weekly)
+    // Skip debts with no payment amount (e.g. collections without a payment plan)
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-    debts.forEach((d) => {
+    debts.filter(d => ((d.minPayment || 0) + (d.extraPayment || 0)) > 0 && d.frequency).forEach((d) => {
       const freq = d.frequency || "monthly";
       const paymentAmt = d.minPayment + d.extraPayment;
       const dueDay = Math.min(d.dueDay || 1, daysInMonth);
@@ -2330,6 +2471,16 @@ The user's current financial data:
         }
         @media (max-width: 640px) {
           .mobile-px { padding-left: 12px !important; padding-right: 12px !important; }
+        }
+        /* Prevent iPad/iOS scroll jump when focusing number inputs */
+        input[type="number"], input[type="text"], select, textarea {
+          scroll-margin-top: 120px;
+          scroll-margin-bottom: 60px;
+        }
+        @supports (-webkit-touch-callout: none) {
+          input:focus, select:focus, textarea:focus {
+            scroll-margin-top: 150px;
+          }
         }
       `}</style>
       {/* Theme special effects */}
@@ -5156,11 +5307,21 @@ The user's current financial data:
             {debtDraft && (
               <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className={dm('border-indigo-200 bg-indigo-50/30', 'border-indigo-800 bg-indigo-950/30')}>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <select value={debtDraft.debtType || "loan"} onChange={(e) => setDebtDraft({ ...debtDraft, debtType: e.target.value, creditLimit: e.target.value === 'loan' ? '' : debtDraft.creditLimit })}
+                  <select value={debtDraft.debtType || "loan"} onChange={(e) => {
+                    const t = e.target.value;
+                    setDebtDraft({ ...debtDraft, debtType: t,
+                      creditLimit: (t === 'loan' || t === 'collections') ? '' : debtDraft.creditLimit,
+                      rate: t === 'collections' ? 0 : debtDraft.rate,
+                      frequency: t === 'collections' && !debtDraft.hasPaymentPlan ? '' : debtDraft.frequency,
+                      minPayment: t === 'collections' && !debtDraft.hasPaymentPlan ? '' : debtDraft.minPayment,
+                      hasPaymentPlan: t === 'collections' ? (debtDraft.hasPaymentPlan || false) : undefined
+                    });
+                  }}
                     className={`col-span-2 sm:col-span-1 px-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`}>
                     <option value="credit_card">Credit Card</option>
                     <option value="line_of_credit">Line of Credit</option>
                     <option value="loan">Loan</option>
+                    <option value="collections">Collections</option>
                   </select>
                   <input placeholder="Debt name" value={debtDraft.name} onChange={(e) => setDebtDraft({ ...debtDraft, name: e.target.value })}
                     className={`col-span-2 sm:col-span-3 px-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
@@ -5176,36 +5337,57 @@ The user's current financial data:
                         className={`w-full pl-7 pr-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
                     </div>
                   )}
-                  <div className="relative">
-                    <input type="number" step="0.1" placeholder="APR %" value={debtDraft.rate} onChange={(e) => setDebtDraft({ ...debtDraft, rate: e.target.value })}
-                      className={`w-full pr-7 pl-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                    <input type="number" placeholder="Min payment" value={debtDraft.minPayment} onChange={(e) => setDebtDraft({ ...debtDraft, minPayment: e.target.value })}
-                      className={`w-full pl-7 pr-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                    <input type="number" placeholder="Extra payment" value={debtDraft.extraPayment} onChange={(e) => setDebtDraft({ ...debtDraft, extraPayment: e.target.value })}
-                      className={`w-full pl-7 pr-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
-                  </div>
-                  <select value={debtDraft.frequency || "monthly"} onChange={(e) => setDebtDraft({ ...debtDraft, frequency: e.target.value })}
-                    className={`px-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`}>
-                    <option value="monthly">Monthly</option>
-                    <option value="semimonthly">Semi-Monthly</option>
-                    <option value="biweekly">Biweekly</option>
-                    <option value="weekly">Weekly</option>
-                  </select>
-                  <div className="relative">
-                    <input type="number" min="1" max="31" placeholder="Due day" value={debtDraft.dueDay || ''} onChange={(e) => setDebtDraft({ ...debtDraft, dueDay: +e.target.value || 1 })}
-                      className={`w-full px-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
-                    <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>day</span>
-                  </div>
+                  {/* Collections: payment plan toggle */}
+                  {debtDraft.debtType === 'collections' && (
+                    <label className={`col-span-2 flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm ${dm('bg-amber-50 border border-amber-200', 'bg-amber-900/20 border border-amber-800')}`}>
+                      <input type="checkbox" checked={!!debtDraft.hasPaymentPlan}
+                        onChange={(e) => setDebtDraft({ ...debtDraft, hasPaymentPlan: e.target.checked,
+                          frequency: e.target.checked ? (debtDraft.frequency || 'monthly') : '',
+                          minPayment: e.target.checked ? debtDraft.minPayment : '',
+                          rate: 0
+                        })}
+                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                      <span className={dm('text-amber-800', 'text-amber-300')}>Payment plan agreed with collector</span>
+                    </label>
+                  )}
+                  {/* APR — hide for collections (0% by default) */}
+                  {debtDraft.debtType !== 'collections' && (
+                    <div className="relative">
+                      <input type="number" step="0.1" placeholder="APR %" value={debtDraft.rate} onChange={(e) => setDebtDraft({ ...debtDraft, rate: e.target.value })}
+                        className={`w-full pr-7 pl-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                    </div>
+                  )}
+                  {/* Payment fields — show for non-collections OR collections with payment plan */}
+                  {(debtDraft.debtType !== 'collections' || debtDraft.hasPaymentPlan) && (
+                    <>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                        <input type="number" placeholder="Min payment" value={debtDraft.minPayment} onChange={(e) => setDebtDraft({ ...debtDraft, minPayment: e.target.value })}
+                          className={`w-full pl-7 pr-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                        <input type="number" placeholder="Extra payment" value={debtDraft.extraPayment} onChange={(e) => setDebtDraft({ ...debtDraft, extraPayment: e.target.value })}
+                          className={`w-full pl-7 pr-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                      </div>
+                      <select value={debtDraft.frequency || "monthly"} onChange={(e) => setDebtDraft({ ...debtDraft, frequency: e.target.value })}
+                        className={`px-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`}>
+                        <option value="monthly">Monthly</option>
+                        <option value="semimonthly">Semi-Monthly</option>
+                        <option value="biweekly">Biweekly</option>
+                        <option value="weekly">Weekly</option>
+                      </select>
+                      <div className="relative">
+                        <input type="number" min="1" max="31" placeholder="Due day" value={debtDraft.dueDay || ''} onChange={(e) => setDebtDraft({ ...debtDraft, dueDay: +e.target.value || 1 })}
+                          className={`w-full px-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
+                        <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>day</span>
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="flex gap-2 mt-3">
-                  <button onClick={() => { if (debtDraft.name && debtDraft.balance) { const d = { ...debtDraft, balance: +debtDraft.balance, rate: +debtDraft.rate || 0, minPayment: +debtDraft.minPayment || 0, extraPayment: +debtDraft.extraPayment || 0, frequency: debtDraft.frequency || "monthly", dueDay: +debtDraft.dueDay || 1, debtType: debtDraft.debtType || "loan", creditLimit: +debtDraft.creditLimit || 0 }; if (editingDebtId) updateDebt(editingDebtId, d); else addDebt(d); } }}
+                  <button onClick={() => { if (debtDraft.name && debtDraft.balance) { const isCollNoPlan = debtDraft.debtType === 'collections' && !debtDraft.hasPaymentPlan; const d = { ...debtDraft, balance: +debtDraft.balance, rate: +debtDraft.rate || 0, minPayment: isCollNoPlan ? 0 : (+debtDraft.minPayment || 0), extraPayment: isCollNoPlan ? 0 : (+debtDraft.extraPayment || 0), frequency: isCollNoPlan ? '' : (debtDraft.frequency || "monthly"), dueDay: +debtDraft.dueDay || 1, debtType: debtDraft.debtType || "loan", creditLimit: +debtDraft.creditLimit || 0, hasPaymentPlan: !!debtDraft.hasPaymentPlan }; if (editingDebtId) updateDebt(editingDebtId, d); else addDebt(d); } }}
                     className="flex-1 bg-indigo-600 text-white rounded-lg text-sm font-medium py-2 hover:bg-indigo-700 transition flex items-center justify-center gap-1"><Check size={14} /> {editingDebtId ? 'Update' : 'Save'}</button>
                   <button onClick={() => { setDebtDraft(null); setEditingDebtId(null); }} className="px-4 text-gray-400 hover:text-gray-600"><X size={16} /></button>
                 </div>
@@ -5340,7 +5522,7 @@ The user's current financial data:
                 {debtTimelines.map((d) => {
                   const isCreditType = d.debtType === 'credit_card' || d.debtType === 'line_of_credit';
                   const cardUtil = isCreditType && d.creditLimit > 0 ? Math.round((d.balance / d.creditLimit) * 100) : 0;
-                  const typeLabel = d.debtType === 'credit_card' ? 'Credit Card' : d.debtType === 'line_of_credit' ? 'Line of Credit' : 'Loan';
+                  const typeLabel = d.debtType === 'credit_card' ? 'Credit Card' : d.debtType === 'line_of_credit' ? 'Line of Credit' : d.debtType === 'collections' ? 'Collections' : 'Loan';
                   return (
                   <SwipeRow key={d.id} darkMode={darkMode}
                     isOpen={swipedItemId === `debt-${d.id}`}
@@ -5354,7 +5536,9 @@ The user's current financial data:
                       <div>
                         <div className="flex items-center gap-2">
                           <h3 className={`font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{d.name}</h3>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${d.debtType === 'credit_card' ? dm('bg-violet-100 text-violet-700', 'bg-violet-900/40 text-violet-300') : d.debtType === 'line_of_credit' ? dm('bg-blue-100 text-blue-700', 'bg-blue-900/40 text-blue-300') : dm('bg-gray-100 text-gray-600', 'bg-slate-700 text-gray-400')}`}>{typeLabel}</span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${d.debtType === 'credit_card' ? dm('bg-violet-100 text-violet-700', 'bg-violet-900/40 text-violet-300') : d.debtType === 'line_of_credit' ? dm('bg-blue-100 text-blue-700', 'bg-blue-900/40 text-blue-300') : d.debtType === 'collections' ? dm('bg-amber-100 text-amber-700', 'bg-amber-900/40 text-amber-300') : dm('bg-gray-100 text-gray-600', 'bg-slate-700 text-gray-400')}`}>{typeLabel}</span>
+                          {d.debtType === 'collections' && !d.hasPaymentPlan && <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${dm('bg-rose-100 text-rose-600', 'bg-rose-900/40 text-rose-300')}`}>No Plan</span>}
+                          {d.debtType === 'collections' && d.hasPaymentPlan && <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${dm('bg-emerald-100 text-emerald-600', 'bg-emerald-900/40 text-emerald-300')}`}>Payment Plan</span>}
                         </div>
                         <p className="text-xs text-gray-400">{d.rate}% APR · {fmt(d.minPayment)} min{d.extraPayment > 0 ? ` + ${fmt(d.extraPayment)} extra` : ""} · {d.frequency || 'monthly'} · due {d.dueDay || 1}{['st','nd','rd'][((d.dueDay || 1) % 10) - 1] && (d.dueDay || 1) < 4 || (d.dueDay || 1) > 20 && (d.dueDay || 1) < 24 ? ['st','nd','rd'][((d.dueDay || 1) % 10) - 1] : 'th'}</p>
                       </div>
@@ -5536,6 +5720,117 @@ The user's current financial data:
                 </div>
               </Card>
             )}
+            {/* ═══════ FICO SCORE ESTIMATOR ═══════ */}
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} flex items-center gap-2`}>
+                  <Shield size={15} className="text-indigo-500" /> FICO Score Estimator
+                </h3>
+                <div className={`text-3xl font-black ${ficoScore >= 740 ? 'text-emerald-500' : ficoScore >= 670 ? 'text-yellow-500' : ficoScore >= 580 ? 'text-amber-500' : 'text-rose-500'}`}>
+                  {ficoScore}
+                </div>
+              </div>
+
+              {/* Score bar */}
+              <div className="relative h-4 rounded-full overflow-hidden bg-gradient-to-r from-rose-500 via-amber-400 via-yellow-400 to-emerald-500 mb-1">
+                <div className="absolute top-0 h-full w-1 bg-white shadow-lg rounded-full" style={{ left: `${Math.max(0, Math.min(100, ((ficoScore - 300) / 550) * 100))}%`, transform: 'translateX(-50%)' }} />
+              </div>
+              <div className="flex justify-between text-[9px] text-gray-400 mb-4">
+                <span>300 Poor</span><span>580 Fair</span><span>670 Good</span><span>740 Very Good</span><span>850</span>
+              </div>
+
+              {/* Input fields */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                <div>
+                  <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Payment History</label>
+                  <select value={ficoInputs.paymentHistory} onChange={(e) => setFicoInputs({ ...ficoInputs, paymentHistory: e.target.value })}
+                    className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`}>
+                    <option value="excellent">Excellent (no lates)</option>
+                    <option value="good">Good (1-2 lates)</option>
+                    <option value="fair">Fair (some lates)</option>
+                    <option value="poor">Poor (many lates)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Oldest Account (yrs)</label>
+                  <input type="number" min="0" max="50" value={ficoInputs.oldestAccountYears} onChange={(e) => setFicoInputs({ ...ficoInputs, oldestAccountYears: +e.target.value || 0 })}
+                    className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                </div>
+                <div>
+                  <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Total Accounts</label>
+                  <input type="number" min="0" max="50" value={ficoInputs.totalAccounts} onChange={(e) => setFicoInputs({ ...ficoInputs, totalAccounts: +e.target.value || 0 })}
+                    className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                </div>
+                <div>
+                  <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Hard Inquiries (2yr)</label>
+                  <input type="number" min="0" max="20" value={ficoInputs.hardInquiries} onChange={(e) => setFicoInputs({ ...ficoInputs, hardInquiries: +e.target.value || 0 })}
+                    className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                </div>
+                <div>
+                  <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Missed Payments</label>
+                  <input type="number" min="0" max="20" value={ficoInputs.missedPayments} onChange={(e) => setFicoInputs({ ...ficoInputs, missedPayments: +e.target.value || 0 })}
+                    className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                </div>
+                <div className="flex items-end gap-3">
+                  <label className={`flex items-center gap-1.5 text-[10px] ${dm('text-gray-600', 'text-gray-300')} cursor-pointer`}>
+                    <input type="checkbox" checked={!!ficoInputs.hasCollections} onChange={(e) => setFicoInputs({ ...ficoInputs, hasCollections: e.target.checked })}
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                    Collections
+                  </label>
+                  <label className={`flex items-center gap-1.5 text-[10px] ${dm('text-gray-600', 'text-gray-300')} cursor-pointer`}>
+                    <input type="checkbox" checked={!!ficoInputs.hasBankruptcy} onChange={(e) => setFicoInputs({ ...ficoInputs, hasBankruptcy: e.target.checked })}
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                    Bankruptcy
+                  </label>
+                </div>
+              </div>
+
+              {/* Credit utilization auto-calculated */}
+              {(() => {
+                const creditDebts = debts.filter(d => d.debtType === 'credit_card' || d.debtType === 'line_of_credit');
+                const totalUsed = creditDebts.reduce((s, d) => s + d.balance, 0);
+                const totalLimit = creditDebts.reduce((s, d) => s + (d.creditLimit || 0), 0);
+                const util = totalLimit > 0 ? Math.round((totalUsed / totalLimit) * 100) : 0;
+                return totalLimit > 0 ? (
+                  <div className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-4 ${dm('bg-indigo-50', 'bg-indigo-900/20')}`}>
+                    <span className={`text-[10px] font-medium ${dm('text-indigo-600', 'text-indigo-300')}`}>Credit Utilization (auto-calculated):</span>
+                    <span className={`text-sm font-bold ${util < 30 ? 'text-emerald-500' : util < 50 ? 'text-yellow-500' : 'text-rose-500'}`}>{util}%</span>
+                    <span className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>{fmt(totalUsed)} / {fmt(totalLimit)}</span>
+                  </div>
+                ) : (
+                  <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')} mb-4`}>Add credit cards above to auto-calculate utilization impact.</p>
+                );
+              })()}
+
+              {/* What-If Scenarios */}
+              {ficoWhatIfScenarios.length > 0 && (
+                <div>
+                  <h4 className={`text-xs font-semibold ${dm('text-gray-700', 'text-gray-300')} mb-2 flex items-center gap-1.5`}>
+                    <Zap size={12} className="text-amber-500" /> What If...
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {ficoWhatIfScenarios.map((s, i) => (
+                      <div key={i} className={`flex items-center justify-between px-3 py-2.5 rounded-xl border transition ${dm('border-gray-100 hover:border-gray-200 bg-white', 'border-slate-700 hover:border-slate-600 bg-slate-800')}`}>
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">{s.icon}</span>
+                          <span className={`text-xs ${dm('text-gray-700', 'text-gray-300')}`}>{s.label}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className={`text-sm font-bold ${s.newScore >= 740 ? 'text-emerald-500' : s.newScore >= 670 ? 'text-yellow-500' : 'text-amber-500'}`}>{s.newScore}</span>
+                          <span className={`text-[10px] ml-1.5 font-semibold ${s.delta > 0 ? 'text-emerald-500' : s.delta < 0 ? 'text-rose-500' : 'text-gray-400'}`}>
+                            {s.delta > 0 ? `+${s.delta}` : s.delta}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <p className={`text-[9px] ${dm('text-gray-400', 'text-gray-500')} mt-3`}>
+                * This is an estimate based on general FICO scoring factors. Your actual score may vary. For an official score, check with your credit bureau.
+              </p>
+            </Card>
           </>
         )}
         {/* ═══════ NET WORTH TAB ═══════ */}
