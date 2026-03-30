@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bgFriendly" x1="0" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="coinOuter" x1="0.3" y1="0" x2="0.7" y2="1">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="40%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+    <linearGradient id="coinInner" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0%" stop-color="#fcd34d"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="coinShadow">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#065f46" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Rounded square background — solid green, no overlays -->
+  <rect width="512" height="512" rx="112" ry="112" fill="url(#bgFriendly)"/>
+
+  <!-- Coin outer ring -->
+  <circle cx="256" cy="222" r="115" fill="url(#coinOuter)" filter="url(#coinShadow)"/>
+  <!-- Coin inner ring border -->
+  <circle cx="256" cy="222" r="98" fill="none" stroke="#d97706" stroke-width="2.5" opacity="0.35"/>
+  <!-- Coin inner face -->
+  <circle cx="256" cy="222" r="94" fill="url(#coinInner)"/>
+  <!-- Coin highlight arc -->
+  <path d="M190 180 A80 80 0 0 1 320 180" fill="none" stroke="white" stroke-width="2" opacity="0.2" stroke-linecap="round"/>
+
+  <!-- Dollar sign -->
+  <text x="256" y="252" text-anchor="middle" fill="#92400e"
+    font-family="'Nunito','Arial Rounded MT Bold',Arial,sans-serif" font-size="105" font-weight="900" opacity="0.55">$</text>
+
+  <!-- Upward arrow -->
+  <line x1="256" y1="88" x2="256" y2="52" stroke="white" stroke-width="5" stroke-linecap="round"/>
+  <polygon points="256,40 272,60 240,60" fill="white"/>
+
+  <!-- Sparkles -->
+  <circle cx="152" cy="135" r="5" fill="white" opacity="0.75"/>
+  <circle cx="142" cy="145" r="2.5" fill="white" opacity="0.45"/>
+  <circle cx="365" cy="145" r="5" fill="white" opacity="0.75"/>
+  <circle cx="358" cy="135" r="2.5" fill="white" opacity="0.45"/>
+  <circle cx="380" cy="165" r="2" fill="white" opacity="0.35"/>
+
+  <!-- Maverick text -->
+  <text x="256" y="400" text-anchor="middle" fill="white"
+    font-family="'Nunito','Poppins','Arial Rounded MT Bold',sans-serif" font-size="34" font-weight="800"
+    letter-spacing="3">Maverick</text>
+  <!-- FINANCE subtitle -->
+  <text x="256" y="432" text-anchor="middle" fill="white" opacity="0.65"
+    font-family="'Nunito','Poppins',sans-serif" font-size="15" font-weight="600"
+    letter-spacing="7">FINANCE</text>
+</svg>
