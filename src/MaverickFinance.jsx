@@ -1101,15 +1101,15 @@ export default function MaverickFinance() {
       if (m) { const n = parseInt(m[1]); if (n >= 0 && n < 100) { result.missedPayments = n; break; } }
     }
 
-    // Collections count
+    // Collections count — strict patterns to avoid false matches
     const collPats = [
       /[Cc]ollections?\s*[Aa]ccounts?\s*[:\s]*(\d{1,2})/,
-      /[Cc]ollections?\s*[:\s]*(\d{1,2})/,
-      /(\d{1,2})\s*(?:collection|account.{0,10}collection)/i,
+      /(\d{1,2})\s*(?:collection\s*accounts?|accounts?\s*in\s*collection)/i,
+      /[Nn]umber\s*(?:of\s*)?[Cc]ollections?\s*[:\s]*(\d{1,2})/,
     ];
     for (const pat of collPats) {
       const m = t.match(pat);
-      if (m) { const n = parseInt(m[1]); if (n > 0) { result.hasCollections = true; result.collectionsCount = n; break; } }
+      if (m) { const n = parseInt(m[1]); if (n > 0 && n <= 15) { result.hasCollections = true; result.collectionsCount = n; break; } }
     }
     if (!result.hasCollections) {
       result.hasCollections = /collection/i.test(t) && /(?:account|balance|amount)/i.test(t);
@@ -1191,6 +1191,10 @@ export default function MaverickFinance() {
       } else if (parsed.missedPayments !== undefined) {
         updates.missedPayments = parsed.missedPayments;
       }
+      // If severity breakdown was extracted, clear the old generic missedPayments to avoid double-counting
+      if (totalFromBreakdown > 0) {
+        updates.missedPayments = 0; // severity fields take precedence
+      }
 
       if (parsed.oldestAccountYears) updates.oldestAccountYears = parsed.oldestAccountYears;
       if (parsed.avgAccountAgeYears) updates.avgAccountAgeYears = parsed.avgAccountAgeYears;
@@ -1218,18 +1222,19 @@ export default function MaverickFinance() {
     const totalLimit = creditDebts.reduce((s, d) => s + (d.creditLimit || 0), 0);
     const aggregateUtil = totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
 
-    // Per-card utilization penalty: cards over 50% hurt more than aggregate suggests
+    // Per-card utilization penalty: cards individually over 50% hurt slightly more
+    // Kept small to avoid double-dipping with aggregate scoring
     let perCardPenalty = 0;
-    if (creditDebts.length > 0) {
+    if (creditDebts.length > 1) { // only matters with multiple cards
       creditDebts.forEach(d => {
         if (d.creditLimit && d.creditLimit > 0) {
           const cardUtil = (d.balance / d.creditLimit) * 100;
-          if (cardUtil > 90) perCardPenalty += 20;
-          else if (cardUtil > 75) perCardPenalty += 12;
-          else if (cardUtil > 50) perCardPenalty += 6;
+          if (cardUtil > 90) perCardPenalty += 8;
+          else if (cardUtil > 75) perCardPenalty += 5;
+          else if (cardUtil > 50) perCardPenalty += 3;
         }
       });
-      perCardPenalty = Math.min(perCardPenalty, 60); // cap
+      perCardPenalty = Math.min(perCardPenalty, 25); // cap — small adjustment, not a major factor
     }
 
     let score = 300; // Base
@@ -1254,34 +1259,34 @@ export default function MaverickFinance() {
     const late30 = inputs.latePayments30 || 0;
     const late60 = inputs.latePayments60 || 0;
     const late90 = inputs.latePayments90 || 0;
-    score -= Math.min(late30 * 15, 45);   // 30-day lates: -15 each, cap -45
-    score -= Math.min(late60 * 30, 60);   // 60-day lates: -30 each, cap -60
-    score -= Math.min(late90 * 50, 100);  // 90+ day lates: -50 each, cap -100
-    // Also still penalize generic missed payments if severity breakdown not provided
-    if (late30 === 0 && late60 === 0 && late90 === 0) {
-      score -= Math.min((inputs.missedPayments || 0) * 35, 140);
+    const hasSeverityBreakdown = late30 > 0 || late60 > 0 || late90 > 0;
+    if (hasSeverityBreakdown) {
+      score -= Math.min(late30 * 15, 45);   // 30-day lates: -15 each, cap -45
+      score -= Math.min(late60 * 30, 60);   // 60-day lates: -30 each, cap -60
+      score -= Math.min(late90 * 50, 100);  // 90+ day lates: -50 each, cap -100
+    } else {
+      // Fallback: generic missed payments when severity breakdown not provided
+      score -= Math.min((inputs.missedPayments || 0) * 40, 150);
     }
 
-    // Credit utilization (30% = max ~212 points) — aggregate with per-card penalty
-    let utilPts;
-    if (aggregateUtil <= 1) utilPts = 212;
-    else if (aggregateUtil <= 5) utilPts = 205;
-    else if (aggregateUtil <= 10) utilPts = 195;
-    else if (aggregateUtil <= 20) utilPts = 175;
-    else if (aggregateUtil <= 30) utilPts = 155;
-    else if (aggregateUtil <= 40) utilPts = 135;
-    else if (aggregateUtil <= 50) utilPts = 115;
-    else if (aggregateUtil <= 65) utilPts = 90;
-    else if (aggregateUtil <= 75) utilPts = 70;
-    else if (aggregateUtil <= 90) utilPts = 50;
-    else utilPts = 30;
-    score += utilPts - perCardPenalty;
+    // Credit utilization (30% = max ~212 points) — same curve as original
+    if (aggregateUtil <= 1) score += 212;
+    else if (aggregateUtil <= 10) score += 195;
+    else if (aggregateUtil <= 20) score += 175;
+    else if (aggregateUtil <= 30) score += 155;
+    else if (aggregateUtil <= 50) score += 120;
+    else if (aggregateUtil <= 75) score += 80;
+    else score += 40;
+    // Small per-card adjustment (only with multiple cards)
+    score -= perCardPenalty;
 
     // Credit age (15% = max ~106 points) — weighted: oldest (60%) + average (40%)
     const oldest = inputs.oldestAccountYears || 0;
     const avgAge = inputs.avgAccountAgeYears || Math.round(oldest * 0.6); // fallback estimate
-    const oldestPts = oldest >= 25 ? 64 : oldest >= 20 ? 60 : oldest >= 15 ? 54 : oldest >= 10 ? 48 : oldest >= 7 ? 40 : oldest >= 5 ? 33 : oldest >= 3 ? 25 : oldest >= 1 ? 16 : 8;
-    const avgAgePts = avgAge >= 10 ? 42 : avgAge >= 7 ? 38 : avgAge >= 5 ? 32 : avgAge >= 4 ? 27 : avgAge >= 3 ? 22 : avgAge >= 2 ? 16 : avgAge >= 1 ? 10 : 5;
+    // Oldest account: max ~64 pts
+    const oldestPts = oldest >= 25 ? 64 : oldest >= 20 ? 60 : oldest >= 15 ? 54 : oldest >= 10 ? 48 : oldest >= 7 ? 42 : oldest >= 5 ? 36 : oldest >= 3 ? 27 : oldest >= 1 ? 18 : 8;
+    // Average age: max ~42 pts
+    const avgAgePts = avgAge >= 10 ? 42 : avgAge >= 7 ? 38 : avgAge >= 5 ? 33 : avgAge >= 4 ? 28 : avgAge >= 3 ? 24 : avgAge >= 2 ? 18 : avgAge >= 1 ? 12 : 6;
     score += oldestPts + avgAgePts;
 
     // Credit mix (10% = max ~71 points)
@@ -1291,10 +1296,10 @@ export default function MaverickFinance() {
     const hasInstallment = debtData.some(d => d.debtType === 'loan');
     const mixTypes = [hasMortgage, hasAutoLoan, hasCards, hasInstallment].filter(Boolean).length;
     const accts = inputs.totalAccounts || 0;
-    let mixPts = Math.min(mixTypes * 16, 64);
+    let mixPts = Math.min(mixTypes * 18, 71);
     // Bonus for having diverse account count
-    if (accts >= 10) mixPts += 7;
-    else if (accts >= 5) mixPts += 4;
+    if (accts >= 10) mixPts += 5;
+    else if (accts >= 5) mixPts += 3;
     score += Math.min(mixPts, 71);
 
     // New credit / inquiries (10% = max ~71 points)
@@ -1307,9 +1312,11 @@ export default function MaverickFinance() {
     else if (inq <= 8) score += 15;
     else score += 5;
 
-    // Negative marks — scaled by severity
-    const collCount = inputs.collectionsCount || (inputs.hasCollections ? 1 : 0);
-    if (collCount > 0) score -= Math.min(collCount * 50, 100); // each collection -50, max -100
+    // Negative marks — collections: flat -75 base, small increment per additional
+    if (inputs.hasCollections || (inputs.collectionsCount || 0) > 0) {
+      const collCount = Math.max(1, inputs.collectionsCount || 1);
+      score -= 75 + Math.min((collCount - 1) * 10, 25); // -75 base, +10 per extra, max -100 total
+    }
     if (inputs.hasBankruptcy) score -= 150;
 
     return Math.max(300, Math.min(850, Math.round(score)));
