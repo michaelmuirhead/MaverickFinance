@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { DollarSign, TrendingUp, TrendingDown, Landmark, CreditCard, PiggyBank, Calendar, Plus, Trash2, Check, X, AlertCircle, Target, Wallet, Bell, ChevronLeft, ChevronRight, BarChart3, Zap, ClipboardList, Copy, CheckCircle, Circle, GripVertical, Sun, Moon, Settings, Download, Upload, StickyNote, Calculator, Clock, Heart, Shield, Search, ChevronDown, Minus, ArrowDownCircle, ArrowUpCircle, GitBranch, Repeat, Eye, Sparkles, CalendarDays, Star, Cloud, LogIn, LogOut, RefreshCw, MessageCircle, Send, Bot, User } from "lucide-react";
 
@@ -750,7 +750,132 @@ export default function MaverickFinance() {
   const [plannerOrderByMonth, setPlannerOrderByMonth] = useState(init("plannerOrderByMonth", {}));
   const [draggedItemId, setDraggedItemId] = useState(null);
   const [dragOverItemId, setDragOverItemId] = useState(null);
-  const touchDragRef = useRef({ active: false, startY: 0, itemId: null });
+  const touchDragRef = useRef({ active: false, startY: 0, startX: 0, itemId: null, ghost: null, scrollInterval: null });
+
+  // iOS-compatible touch drag — uses native non-passive listeners for reliable preventDefault
+  const setupTouchDrag = useCallback((el, itemId) => {
+    if (!el) return;
+    // Avoid double-binding
+    if (el._touchDragBound) return;
+    el._touchDragBound = true;
+
+    const handleTouchStart = (e) => {
+      const t = e.touches[0];
+      const row = el.closest('[data-planner-id]');
+      if (!row) return;
+
+      // Create ghost element for visual feedback
+      const rect = row.getBoundingClientRect();
+      const ghost = row.cloneNode(true);
+      ghost.style.position = 'fixed';
+      ghost.style.left = rect.left + 'px';
+      ghost.style.top = rect.top + 'px';
+      ghost.style.width = rect.width + 'px';
+      ghost.style.height = rect.height + 'px';
+      ghost.style.zIndex = '9999';
+      ghost.style.opacity = '0.85';
+      ghost.style.pointerEvents = 'none';
+      ghost.style.boxShadow = '0 8px 25px rgba(0,0,0,0.2)';
+      ghost.style.borderRadius = '12px';
+      ghost.style.transform = 'scale(1.02)';
+      ghost.style.transition = 'none';
+      document.body.appendChild(ghost);
+
+      touchDragRef.current = {
+        active: true,
+        startY: t.clientY,
+        startX: t.clientX,
+        itemId: itemId,
+        ghost: ghost,
+        origTop: rect.top,
+        offsetY: t.clientY - rect.top,
+        scrollInterval: null,
+      };
+      setDraggedItemId(itemId);
+      e.preventDefault();
+    };
+
+    const handleTouchMove = (e) => {
+      if (!touchDragRef.current.active) return;
+      const t = e.touches[0];
+      const ref = touchDragRef.current;
+
+      // Move ghost
+      if (ref.ghost) {
+        ref.ghost.style.top = (t.clientY - ref.offsetY) + 'px';
+      }
+
+      // Auto-scroll near edges
+      const scrollContainer = el.closest('.overflow-y-auto, .overflow-auto, [style*="overflow"]') || window;
+      const edgeZone = 50;
+      const viewH = window.innerHeight;
+      if (ref.scrollInterval) { clearInterval(ref.scrollInterval); ref.scrollInterval = null; }
+      if (t.clientY < edgeZone) {
+        ref.scrollInterval = setInterval(() => {
+          if (scrollContainer === window) window.scrollBy(0, -8);
+          else scrollContainer.scrollTop -= 8;
+        }, 16);
+      } else if (t.clientY > viewH - edgeZone) {
+        ref.scrollInterval = setInterval(() => {
+          if (scrollContainer === window) window.scrollBy(0, 8);
+          else scrollContainer.scrollTop += 8;
+        }, 16);
+      }
+
+      // Find element under finger (hide ghost temporarily)
+      if (ref.ghost) ref.ghost.style.display = 'none';
+      const elUnder = document.elementFromPoint(t.clientX, t.clientY);
+      if (ref.ghost) ref.ghost.style.display = '';
+
+      if (elUnder) {
+        const row = elUnder.closest('[data-planner-id]');
+        if (row) {
+          const overId = row.getAttribute('data-planner-id');
+          if (overId !== touchDragRef.current._lastOverId) {
+            touchDragRef.current._lastOverId = overId;
+            setDragOverItemId(overId);
+          }
+        }
+      }
+      e.preventDefault();
+    };
+
+    const handleTouchEnd = (e) => {
+      if (!touchDragRef.current.active) return;
+      const fromId = touchDragRef.current.itemId;
+      const toId = touchDragRef.current._lastOverId;
+
+      // Cleanup ghost
+      if (touchDragRef.current.ghost) {
+        touchDragRef.current.ghost.remove();
+      }
+      if (touchDragRef.current.scrollInterval) {
+        clearInterval(touchDragRef.current.scrollInterval);
+      }
+
+      touchDragRef.current = { active: false, startY: 0, startX: 0, itemId: null, ghost: null, scrollInterval: null };
+
+      if (fromId && toId && fromId !== toId) {
+        reorderPlannerItem(fromId, toId);
+      } else {
+        setDraggedItemId(null);
+        setDragOverItemId(null);
+      }
+    };
+
+    // Use non-passive listeners — critical for iOS preventDefault to work
+    el.addEventListener('touchstart', handleTouchStart, { passive: false });
+    el.addEventListener('touchmove', handleTouchMove, { passive: false });
+    el.addEventListener('touchend', handleTouchEnd, { passive: false });
+
+    // Store cleanup refs
+    el._touchDragCleanup = () => {
+      el.removeEventListener('touchstart', handleTouchStart);
+      el.removeEventListener('touchmove', handleTouchMove);
+      el.removeEventListener('touchend', handleTouchEnd);
+      el._touchDragBound = false;
+    };
+  }, []);
 
   // State for donut chart category drill-down
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -4720,59 +4845,30 @@ The user's current financial data:
                         ]}
                       >
                         <div data-planner-id={item.id} className={`flex items-center gap-3 py-3 px-4 border rounded-xl transition ${
-                          item.paid
-                            ? "bg-gray-50 border-gray-200"
-                            : item.isRollover
-                              ? "bg-indigo-50/60 border-indigo-200 border-dashed"
-                              : isIncome
-                                ? "bg-emerald-50/40 border-emerald-100"
-                                : dragOverItemId === item.id
-                                  ? "bg-indigo-50 border-indigo-300"
-                                  : "bg-white border-gray-100"
+                          draggedItemId === item.id
+                            ? "opacity-40 border-dashed border-indigo-300 bg-indigo-50/30"
+                            : dragOverItemId === item.id
+                              ? "bg-indigo-50 border-indigo-300 shadow-sm"
+                              : item.paid
+                                ? "bg-gray-50 border-gray-200"
+                                : item.isRollover
+                                  ? "bg-indigo-50/60 border-indigo-200 border-dashed"
+                                  : isIncome
+                                    ? "bg-emerald-50/40 border-emerald-100"
+                                    : "bg-white border-gray-100"
                         }`}
                           onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverItemId(item.id); }}
                           onDrop={(e) => { e.preventDefault(); if (draggedItemId) reorderPlannerItem(draggedItemId, item.id); }}
                           onDragLeave={() => { if (dragOverItemId === item.id) setDragOverItemId(null); }}
                         >
-                          {/* Drag handle — desktop HTML5 drag + mobile touch drag */}
-                          <div className="flex-shrink-0 touch-none"
+                          {/* Drag handle — desktop HTML5 drag + iOS/Android touch drag */}
+                          <div className="flex-shrink-0 touch-none select-none"
                             draggable
                             onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.id); setDraggedItemId(item.id); }}
                             onDragEnd={() => { if (draggedItemId && dragOverItemId && draggedItemId !== dragOverItemId) reorderPlannerItem(draggedItemId, dragOverItemId); else { setDraggedItemId(null); setDragOverItemId(null); } }}
-                            onTouchStart={(e) => {
-                              const t = e.touches[0];
-                              touchDragRef.current = { active: true, startY: t.clientY, itemId: item.id };
-                              setDraggedItemId(item.id);
-                              e.preventDefault();
-                            }}
-                            onTouchMove={(e) => {
-                              if (!touchDragRef.current.active) return;
-                              const t = e.touches[0];
-                              const el = document.elementFromPoint(t.clientX, t.clientY);
-                              if (el) {
-                                const row = el.closest('[data-planner-id]');
-                                if (row) {
-                                  const overId = row.getAttribute('data-planner-id');
-                                  if (overId !== dragOverItemId) setDragOverItemId(overId);
-                                } else {
-                                  setDragOverItemId(null);
-                                }
-                              }
-                              e.preventDefault();
-                            }}
-                            onTouchEnd={(e) => {
-                              if (!touchDragRef.current.active) return;
-                              const fromId = touchDragRef.current.itemId;
-                              touchDragRef.current = { active: false, startY: 0, itemId: null };
-                              if (fromId && dragOverItemId && fromId !== dragOverItemId) {
-                                reorderPlannerItem(fromId, dragOverItemId);
-                              } else {
-                                setDraggedItemId(null);
-                                setDragOverItemId(null);
-                              }
-                            }}
+                            ref={(el) => { if (el) setupTouchDrag(el, item.id); }}
                           >
-                            <GripVertical size={14} className={`cursor-grab active:cursor-grabbing ${dragOverItemId === item.id ? 'text-indigo-500' : 'text-gray-300'}`} />
+                            <GripVertical size={14} className={`cursor-grab active:cursor-grabbing ${dragOverItemId === item.id ? 'text-indigo-500' : draggedItemId === item.id ? 'text-indigo-400' : 'text-gray-300'}`} />
                           </div>
                           {/* Clickable paid toggle */}
                           <button onClick={() => togglePlannerPaid(item.id)} className="flex-shrink-0 transition-transform hover:scale-110 active:scale-95" title={item.paid ? "Mark unpaid" : "Mark paid"}>
