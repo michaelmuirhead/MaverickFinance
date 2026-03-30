@@ -3348,55 +3348,48 @@ The user's current financial data:
 
       {/* Header */}
       <header className={`${isThemed ? theme.headerClass : dm('bg-white/80', 'bg-slate-900/80')} backdrop-blur-md ${isThemed ? '' : dm('border-gray-200', 'border-slate-700')} border-b sticky top-0 z-30 safe-top safe-x`}>
-        <div className="max-w-6xl mx-auto px-4 mobile-px py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className={`${isThemed ? '' : 'bg-indigo-600'} text-white p-2 rounded-xl`} style={isThemed ? { background: theme.accentColor } : {}}><Wallet size={20} /></div>
-            <div>
-              <h1 className={`text-lg font-bold ${isThemed ? theme.textClass : dm('text-gray-900', 'text-white')} leading-tight`}>MaverickFinance</h1>
-              <p className={`text-xs ${isThemed ? 'opacity-60 ' + theme.textClass : dm('text-gray-500', 'text-gray-400')}`}>{isThemed ? `${theme.emoji} ${theme.name} Theme` : 'Your budget, your way'}</p>
+        <div className="max-w-6xl mx-auto px-4 mobile-px py-2 sm:py-3">
+          {/* Top row: Logo + action buttons */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className={`${isThemed ? '' : 'bg-indigo-600'} text-white p-1.5 sm:p-2 rounded-xl`} style={isThemed ? { background: theme.accentColor } : {}}><Wallet size={18} /></div>
+              <div>
+                <h1 className={`text-sm sm:text-lg font-bold ${isThemed ? theme.textClass : dm('text-gray-900', 'text-white')} leading-tight`}>MaverickFinance</h1>
+                <p className={`text-[10px] sm:text-xs hidden sm:block ${isThemed ? 'opacity-60 ' + theme.textClass : dm('text-gray-500', 'text-gray-400')}`}>{isThemed ? `${theme.emoji} ${theme.name} Theme` : 'Your budget, your way'}</p>
+              </div>
             </div>
-          </div>
-          {/* Month Switcher */}
-          <div className="flex items-center gap-2">
-            <button onClick={() => goMonth(-1)} className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}><ChevronLeft size={18} /></button>
-            <button onClick={() => { setViewYear(today.getFullYear()); setViewMonth(today.getMonth()); }}
-              className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition ${isCurrentMonth ? "bg-indigo-100 text-indigo-700" : dm("bg-gray-100 text-gray-700 hover:bg-gray-200", "bg-slate-700 text-slate-300 hover:bg-slate-600")}`}>
-              {monthLabel(viewYear, viewMonth)}
-            </button>
-            <button onClick={() => goMonth(1)} className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}><ChevronRight size={18} /></button>
-          </div>
-          {/* Cloud Sync + Dark mode + Settings */}
-          <div className="flex items-center gap-2">
-            {firebaseEnabled && (
-              fbUser ? (
-                <div className="flex items-center gap-1.5">
-                  <button onClick={forceSync} title={`Synced as ${fbUser.email}${lastSyncTime ? ' • Last: ' + lastSyncTime.toLocaleTimeString() : ''}`}
-                    className={`p-1.5 rounded-lg transition ${syncStatus === 'syncing' ? 'animate-pulse' : ''} ${dm('hover:bg-gray-100', 'hover:bg-slate-700')}`}>
-                    {syncStatus === 'error' ? <AlertCircle size={18} className="text-red-500" /> :
-                     syncStatus === 'syncing' ? <RefreshCw size={18} className={`${dm('text-indigo-500', 'text-indigo-400')} animate-spin`} /> :
-                     <Cloud size={18} className={`${dm('text-green-500', 'text-green-400')}`} />}
+            {/* Action buttons — always visible */}
+            <div className="flex items-center gap-1 sm:gap-2">
+              {firebaseEnabled && (
+                fbUser ? (
+                  <div className="flex items-center gap-1">
+                    <button onClick={forceSync} title={`Synced as ${fbUser.email}${lastSyncTime ? ' • Last: ' + lastSyncTime.toLocaleTimeString() : ''}`}
+                      className={`p-1.5 rounded-lg transition ${syncStatus === 'syncing' ? 'animate-pulse' : ''} ${dm('hover:bg-gray-100', 'hover:bg-slate-700')}`}>
+                      {syncStatus === 'error' ? <AlertCircle size={16} className="text-red-500" /> :
+                       syncStatus === 'syncing' ? <RefreshCw size={16} className={`${dm('text-indigo-500', 'text-indigo-400')} animate-spin`} /> :
+                       <Cloud size={16} className={`${dm('text-green-500', 'text-green-400')}`} />}
+                    </button>
+                    <button onClick={signOutUser} title="Sign out" className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}>
+                      <LogOut size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={signInWithGoogle} title="Sign in to sync across devices"
+                    className={`p-1.5 rounded-lg transition flex items-center gap-1 text-xs font-medium ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}>
+                    <Cloud size={16} /> <span className="hidden sm:inline">Sync</span>
                   </button>
-                  <button onClick={signOutUser} title="Sign out" className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}>
-                    <LogOut size={16} />
-                  </button>
-                </div>
-              ) : (
-                <button onClick={signInWithGoogle} title="Sign in to sync across devices"
-                  className={`p-1.5 rounded-lg transition flex items-center gap-1.5 text-xs font-medium ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}>
-                  <Cloud size={18} /> <span className="hidden sm:inline">Sync</span>
-                </button>
-              )
-            )}
-            <button onClick={() => setShowSearch(!showSearch)} className={`p-2 rounded-lg ${dm('hover:bg-gray-100', 'hover:bg-slate-800')} transition`}>
-              <Search size={18} className={dm('text-gray-500', 'text-gray-400')} />
-            </button>
-            <button onClick={() => setDarkMode(!darkMode)} title="Toggle dark mode" className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}>
-              {darkMode ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-            <div className="relative group">
-              <button className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}>
-                <Settings size={18} />
+                )
+              )}
+              <button onClick={() => setShowSearch(!showSearch)} className={`p-1.5 rounded-lg ${dm('hover:bg-gray-100', 'hover:bg-slate-800')} transition`}>
+                <Search size={16} className={dm('text-gray-500', 'text-gray-400')} />
               </button>
+              <button onClick={() => setDarkMode(!darkMode)} title="Toggle dark mode" className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}>
+                {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
+              <div className="relative group">
+                <button className={`p-1.5 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}>
+                  <Settings size={16} />
+                </button>
               <div className={`absolute right-0 mt-2 w-48 ${dm('bg-white border-gray-200', 'bg-slate-800 border-slate-700')} border rounded-lg shadow-lg p-2 hidden group-hover:block z-50`}>
                 <button onClick={handleExport} className={`w-full text-left px-3 py-2 rounded flex items-center gap-2 transition ${dm('hover:bg-gray-100 text-gray-700', 'hover:bg-slate-700 text-slate-100')}`}>
                   <Download size={14} /> Export Data
@@ -3450,6 +3443,16 @@ The user's current financial data:
                 </div>
               </div>
             </div>
+          </div>
+          </div>
+          {/* Month Switcher — second row, centered */}
+          <div className="flex items-center justify-center gap-2 pt-1.5 pb-0.5">
+            <button onClick={() => goMonth(-1)} className={`p-1 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}><ChevronLeft size={16} /></button>
+            <button onClick={() => { setViewYear(today.getFullYear()); setViewMonth(today.getMonth()); }}
+              className={`px-3 py-1 text-xs sm:text-sm font-semibold rounded-lg transition ${isCurrentMonth ? "bg-indigo-100 text-indigo-700" : dm("bg-gray-100 text-gray-700 hover:bg-gray-200", "bg-slate-700 text-slate-300 hover:bg-slate-600")}`}>
+              {monthLabel(viewYear, viewMonth)}
+            </button>
+            <button onClick={() => goMonth(1)} className={`p-1 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}><ChevronRight size={16} /></button>
           </div>
         </div>
       </header>
