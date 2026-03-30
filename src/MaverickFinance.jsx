@@ -825,6 +825,206 @@ export default function MaverickFinance() {
     hasBankruptcy: false,
   }));
   const [ficoWhatIf, setFicoWhatIf] = useState(null); // { action: string, delta: number }
+  const [ficoReportStatus, setFicoReportStatus] = useState(null); // null | 'loading' | 'success' | 'error'
+  const [ficoReportScore, setFicoReportScore] = useState(init("ficoReportScore", null)); // actual FICO from report
+  const [ficoReportError, setFicoReportError] = useState("");
+
+  // Lazy-load pdf.js from CDN
+  const loadPdfJs = async () => {
+    if (window.pdfjsLib) return window.pdfjsLib;
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      script.onload = () => {
+        const lib = window.pdfjsLib;
+        lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        resolve(lib);
+      };
+      script.onerror = () => reject(new Error('Failed to load PDF parser'));
+      document.head.appendChild(script);
+    });
+  };
+
+  // Extract text from all pages of a PDF
+  const extractPdfText = async (file) => {
+    const pdfjsLib = await loadPdfJs();
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items.map(item => item.str).join(' ');
+      fullText += pageText + '\n';
+    }
+    return fullText;
+  };
+
+  // Parse FICO report text to extract credit data
+  const parseFicoReport = (text) => {
+    const t = text.replace(/\s+/g, ' ');
+    const result = {};
+
+    // Extract FICO / credit score — look for common patterns
+    const scorePatterns = [
+      /FICO\s*(?:Score|®)?\s*[:\s]*(\d{3})/i,
+      /(?:Your|Credit)\s+Score\s*[:\s]*(\d{3})/i,
+      /Score\s*[:\s]*(\d{3})/i,
+      /VantageScore\s*[:\s]*(\d{3})/i,
+      /TransRisk\s*[:\s]*(\d{3})/i,
+      /(?:Equifax|Experian|TransUnion)\s*[:\s]*(\d{3})/i,
+      /\b([3-8]\d{2})\b(?=\s*(?:out of|\/|\s*850|\s*FICO|Good|Fair|Poor|Excellent|Very))/i,
+    ];
+    for (const pat of scorePatterns) {
+      const m = t.match(pat);
+      if (m) { const s = parseInt(m[1]); if (s >= 300 && s <= 850) { result.score = s; break; } }
+    }
+
+    // Payment history percentage
+    const payHistPats = [
+      /[Pp]ayment\s*[Hh]istory\s*[:\s]*(\d{1,3})%/,
+      /[Oo]n[- ]?[Tt]ime\s*[Pp]ayments?\s*[:\s]*(\d{1,3})%/,
+      /(\d{1,3})%\s*(?:on[- ]?time|payment\s*history)/i,
+    ];
+    for (const pat of payHistPats) {
+      const m = t.match(pat);
+      if (m) { result.paymentHistoryPct = parseInt(m[1]); break; }
+    }
+
+    // Number of accounts
+    const acctPats = [
+      /[Tt]otal\s*[Aa]ccounts?\s*[:\s]*(\d{1,3})/,
+      /[Nn]umber\s*of\s*[Aa]ccounts?\s*[:\s]*(\d{1,3})/,
+      /(\d{1,3})\s*(?:total\s*)?accounts?/i,
+      /[Oo]pen\s*[Aa]ccounts?\s*[:\s]*(\d{1,3})/,
+    ];
+    for (const pat of acctPats) {
+      const m = t.match(pat);
+      if (m) { const n = parseInt(m[1]); if (n > 0 && n < 100) { result.totalAccounts = n; break; } }
+    }
+
+    // Credit utilization
+    const utilPats = [
+      /[Cc]redit\s*[Uu]tilization\s*[:\s]*(\d{1,3})%/,
+      /[Uu]tilization\s*[Rr]atio?\s*[:\s]*(\d{1,3})%/,
+      /[Dd]ebt\s*[Uu]sage\s*[:\s]*(\d{1,3})%/,
+      /(\d{1,3})%\s*(?:utilization|credit\s*used)/i,
+    ];
+    for (const pat of utilPats) {
+      const m = t.match(pat);
+      if (m) { result.utilization = parseInt(m[1]); break; }
+    }
+
+    // Oldest account / credit age
+    const agePats = [
+      /[Oo]ldest\s*[Aa]ccount\s*[:\s]*(\d{1,2})\s*(?:yr|year)/i,
+      /[Aa]ge\s*of\s*[Oo]ldest\s*[Aa]ccount\s*[:\s]*(\d{1,2})/i,
+      /[Cc]redit\s*[Hh]istory\s*[Ll]ength\s*[:\s]*(\d{1,2})\s*(?:yr|year)/i,
+      /[Aa]verage\s*[Aa]ge\s*[:\s]*(\d{1,2})\s*(?:yr|year)/i,
+      /(\d{1,2})\s*(?:yr|year)s?\s*(?:,\s*\d+\s*mo)?\s*(?:oldest|credit\s*history|average\s*age)/i,
+    ];
+    for (const pat of agePats) {
+      const m = t.match(pat);
+      if (m) { const y = parseInt(m[1]); if (y > 0 && y < 60) { result.oldestAccountYears = y; break; } }
+    }
+
+    // Hard inquiries
+    const inqPats = [
+      /[Hh]ard\s*[Ii]nquir(?:y|ies)\s*[:\s]*(\d{1,2})/,
+      /[Ii]nquir(?:y|ies)\s*[:\s]*(\d{1,2})/,
+      /(\d{1,2})\s*(?:hard\s*)?inquir(?:y|ies)/i,
+      /[Nn]ew\s*[Cc]redit\s*[:\s]*(\d{1,2})\s*inquir/i,
+    ];
+    for (const pat of inqPats) {
+      const m = t.match(pat);
+      if (m) { const n = parseInt(m[1]); if (n >= 0 && n < 30) { result.hardInquiries = n; break; } }
+    }
+
+    // Late / missed payments
+    const latePats = [
+      /[Ll]ate\s*[Pp]ayments?\s*[:\s]*(\d{1,3})/,
+      /[Mm]issed\s*[Pp]ayments?\s*[:\s]*(\d{1,3})/,
+      /[Dd]elinquenc(?:y|ies)\s*[:\s]*(\d{1,3})/,
+      /(\d{1,3})\s*(?:late|missed|delinquen)/i,
+    ];
+    for (const pat of latePats) {
+      const m = t.match(pat);
+      if (m) { const n = parseInt(m[1]); if (n >= 0 && n < 100) { result.missedPayments = n; break; } }
+    }
+
+    // Collections
+    const collPats = [
+      /[Cc]ollections?\s*[:\s]*(\d{1,2})/,
+      /(\d{1,2})\s*(?:collection|account.{0,10}collection)/i,
+      /[Cc]ollections?\s*[Aa]ccounts?\s*[:\s]*(\d{1,2})/,
+    ];
+    for (const pat of collPats) {
+      const m = t.match(pat);
+      if (m) { const n = parseInt(m[1]); if (n > 0) { result.hasCollections = true; break; } }
+    }
+    if (!result.hasCollections) {
+      result.hasCollections = /collection/i.test(t) && /(?:account|balance|amount)/i.test(t);
+    }
+
+    // Bankruptcy
+    result.hasBankruptcy = /[Bb]ankruptcy/i.test(t) && !/no\s*bankruptcy/i.test(t);
+
+    return result;
+  };
+
+  // Handle FICO report PDF upload
+  const handleFicoReportUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') {
+      setFicoReportError('Please upload a PDF file.');
+      setFicoReportStatus('error');
+      return;
+    }
+    setFicoReportStatus('loading');
+    setFicoReportError('');
+
+    try {
+      const text = await extractPdfText(file);
+      const parsed = parseFicoReport(text);
+
+      if (!parsed.score && !parsed.totalAccounts && !parsed.paymentHistoryPct) {
+        setFicoReportError("Couldn't extract credit data from this PDF. Try a different report format (Experian, Equifax, TransUnion, or Credit Karma).");
+        setFicoReportStatus('error');
+        return;
+      }
+
+      // Map parsed data to ficoInputs
+      const updates = { ...ficoInputs };
+
+      if (parsed.score) {
+        setFicoReportScore(parsed.score);
+      }
+
+      if (parsed.paymentHistoryPct !== undefined) {
+        if (parsed.paymentHistoryPct >= 99) updates.paymentHistory = 'excellent';
+        else if (parsed.paymentHistoryPct >= 95) updates.paymentHistory = 'good';
+        else if (parsed.paymentHistoryPct >= 85) updates.paymentHistory = 'fair';
+        else updates.paymentHistory = 'poor';
+      }
+
+      if (parsed.oldestAccountYears) updates.oldestAccountYears = parsed.oldestAccountYears;
+      if (parsed.totalAccounts) updates.totalAccounts = parsed.totalAccounts;
+      if (parsed.hardInquiries !== undefined) updates.hardInquiries = parsed.hardInquiries;
+      if (parsed.missedPayments !== undefined) updates.missedPayments = parsed.missedPayments;
+      if (parsed.hasCollections !== undefined) updates.hasCollections = parsed.hasCollections;
+      if (parsed.hasBankruptcy !== undefined) updates.hasBankruptcy = parsed.hasBankruptcy;
+
+      setFicoInputs(updates);
+      setFicoReportStatus('success');
+    } catch (err) {
+      setFicoReportError(`Error reading PDF: ${err.message}`);
+      setFicoReportStatus('error');
+    }
+
+    // Reset file input so same file can be re-uploaded
+    e.target.value = '';
+  };
 
   const estimateFico = (inputs, debtData) => {
     // Credit utilization from actual debt data
@@ -1140,25 +1340,72 @@ The user's current financial data:
   }, [maverickMessages, maverickLoading]);
 
   // Prevent iPad/iOS scroll-jump when focusing inputs (especially with Bluetooth keyboard)
+  // Strategy: capture scroll position BEFORE browser scrolls (capture phase),
+  // then restore it if the browser jumped too far.
+  const iosScrollLockRef = useRef({ y: 0, locked: false });
   useEffect(() => {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     if (!isIOS) return;
-    const handler = (e) => {
-      const tag = e.target.tagName;
+
+    // Remove autoFocus on iOS — it causes scroll jumps on component mount
+    const removeAutoFocus = () => {
+      document.querySelectorAll('[autofocus]').forEach(el => el.removeAttribute('autofocus'));
+    };
+    removeAutoFocus();
+    const observer = new MutationObserver(removeAutoFocus);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['autofocus'] });
+
+    // Capture scroll position BEFORE focus causes a scroll (capture phase fires first)
+    const captureHandler = (e) => {
+      const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
-        // Prevent the default scroll-into-view behavior
-        requestAnimationFrame(() => {
-          const scrollY = window.scrollY;
-          setTimeout(() => {
-            if (Math.abs(window.scrollY - scrollY) > 200) {
-              window.scrollTo({ top: scrollY, behavior: 'instant' });
-            }
-          }, 50);
-        });
+        iosScrollLockRef.current = { y: window.scrollY, locked: true };
       }
     };
-    document.addEventListener('focusin', handler, { passive: true });
-    return () => document.removeEventListener('focusin', handler);
+
+    // After focus, check if browser jumped and restore
+    const bubbleHandler = (e) => {
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+        const saved = iosScrollLockRef.current;
+        if (!saved.locked) return;
+        // Check at multiple intervals since iOS scrolls asynchronously
+        const restore = () => {
+          if (Math.abs(window.scrollY - saved.y) > 80) {
+            window.scrollTo({ top: saved.y, behavior: 'instant' });
+          }
+        };
+        restore();
+        setTimeout(restore, 16);
+        setTimeout(restore, 50);
+        setTimeout(restore, 100);
+        setTimeout(() => { iosScrollLockRef.current.locked = false; }, 150);
+      }
+    };
+
+    // Also catch scroll events during focus to prevent mid-scroll jumps
+    let scrollRafId = null;
+    const scrollHandler = () => {
+      if (!iosScrollLockRef.current.locked) return;
+      if (scrollRafId) cancelAnimationFrame(scrollRafId);
+      scrollRafId = requestAnimationFrame(() => {
+        const saved = iosScrollLockRef.current;
+        if (saved.locked && Math.abs(window.scrollY - saved.y) > 80) {
+          window.scrollTo({ top: saved.y, behavior: 'instant' });
+        }
+      });
+    };
+
+    document.addEventListener('focusin', captureHandler, { capture: true, passive: true });
+    document.addEventListener('focusin', bubbleHandler, { capture: false, passive: true });
+    window.addEventListener('scroll', scrollHandler, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('focusin', captureHandler, { capture: true });
+      document.removeEventListener('focusin', bubbleHandler, { capture: false });
+      window.removeEventListener('scroll', scrollHandler);
+    };
   }, []);
 
   const maverickQuickPrompts = [
@@ -1189,7 +1436,7 @@ The user's current financial data:
         payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
         wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges,
         rolloverEnabled, rolloverOverrides, creditHistory,
-        maverickApiKey, maverickProvider, maverickMessages, ficoInputs
+        maverickApiKey, maverickProvider, maverickMessages, ficoInputs, ficoReportScore
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       saveToCloud(data);
@@ -1201,7 +1448,7 @@ The user's current financial data:
     payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
     wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges,
     rolloverEnabled, rolloverOverrides, creditHistory,
-    maverickApiKey, maverickProvider, maverickMessages, ficoInputs]);
+    maverickApiKey, maverickProvider, maverickMessages, ficoInputs, ficoReportScore]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // DERIVED DATA for the viewed month
@@ -2472,15 +2719,20 @@ The user's current financial data:
         @media (max-width: 640px) {
           .mobile-px { padding-left: 12px !important; padding-right: 12px !important; }
         }
-        /* Prevent iPad/iOS scroll jump when focusing number inputs */
-        input[type="number"], input[type="text"], select, textarea {
-          scroll-margin-top: 120px;
-          scroll-margin-bottom: 60px;
+        /* Prevent iPad/iOS scroll jump when focusing inputs */
+        input, select, textarea {
+          scroll-margin-top: 100px;
+          scroll-margin-bottom: 40px;
         }
         @supports (-webkit-touch-callout: none) {
+          /* iOS-specific: prevent browser from auto-scrolling focused elements */
           input:focus, select:focus, textarea:focus {
-            scroll-margin-top: 150px;
+            scroll-margin-top: 100px;
+            scroll-margin-bottom: 40px;
           }
+          /* Prevent iOS keyboard from pushing viewport */
+          html { overflow: auto; height: 100%; }
+          body { overflow: auto; height: 100%; overscroll-behavior-y: none; }
         }
       `}</style>
       {/* Theme special effects */}
@@ -5738,6 +5990,51 @@ The user's current financial data:
               <div className="flex justify-between text-[9px] text-gray-400 mb-4">
                 <span>300 Poor</span><span>580 Fair</span><span>670 Good</span><span>740 Very Good</span><span>850</span>
               </div>
+
+              {/* Upload FICO Report */}
+              <div className={`flex flex-col sm:flex-row items-start sm:items-center gap-3 px-3 py-3 rounded-lg mb-4 ${dm('bg-slate-50 border border-slate-200', 'bg-slate-800/50 border border-slate-700')}`}>
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <Upload size={14} className="text-indigo-500 shrink-0" />
+                  <div className="min-w-0">
+                    <span className={`text-[11px] font-semibold ${dm('text-gray-700', 'text-gray-200')} block`}>Upload FICO Report</span>
+                    <span className={`text-[9px] ${dm('text-gray-400', 'text-gray-500')}`}>PDF — auto-populates fields below</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className={`px-3 py-1.5 rounded-lg text-[11px] font-medium cursor-pointer transition-colors ${dm('bg-indigo-100 text-indigo-700 hover:bg-indigo-200', 'bg-indigo-900/40 text-indigo-300 hover:bg-indigo-900/60')}`}>
+                    {ficoReportStatus === 'loading' ? 'Parsing…' : 'Choose PDF'}
+                    <input type="file" accept=".pdf" className="hidden" onChange={handleFicoReportUpload} disabled={ficoReportStatus === 'loading'} />
+                  </label>
+                  {ficoReportStatus === 'success' && (
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-500 font-medium"><CheckCircle size={12} /> Imported</span>
+                  )}
+                  {ficoReportStatus === 'error' && (
+                    <span className="flex items-center gap-1 text-[10px] text-rose-500 font-medium"><AlertCircle size={12} /> {ficoReportError || 'Parse failed'}</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Report score vs estimated score comparison */}
+              {ficoReportScore && (
+                <div className={`flex items-center gap-4 px-3 py-2 rounded-lg mb-4 ${dm('bg-emerald-50 border border-emerald-200', 'bg-emerald-900/20 border border-emerald-800')}`}>
+                  <div className="text-center">
+                    <div className={`text-[9px] font-medium ${dm('text-gray-500', 'text-gray-400')}`}>Report Score</div>
+                    <div className="text-lg font-black text-emerald-600">{ficoReportScore}</div>
+                  </div>
+                  <div className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>vs</div>
+                  <div className="text-center">
+                    <div className={`text-[9px] font-medium ${dm('text-gray-500', 'text-gray-400')}`}>Estimated</div>
+                    <div className={`text-lg font-black ${ficoScore >= 740 ? 'text-emerald-500' : ficoScore >= 670 ? 'text-yellow-500' : ficoScore >= 580 ? 'text-amber-500' : 'text-rose-500'}`}>{ficoScore}</div>
+                  </div>
+                  <div className={`text-[9px] ${dm('text-gray-400', 'text-gray-500')} flex-1`}>
+                    {Math.abs(ficoReportScore - ficoScore) <= 20 ? 'Estimate is close to your actual score!' : `Difference of ${Math.abs(ficoReportScore - ficoScore)} pts — adjust inputs above for better accuracy.`}
+                  </div>
+                  <button onClick={() => { setFicoReportScore(null); setFicoReportStatus(null); }}
+                    className={`text-[9px] ${dm('text-gray-400 hover:text-gray-600', 'text-gray-500 hover:text-gray-300')} transition-colors`}>
+                    <X size={12} />
+                  </button>
+                </div>
+              )}
 
               {/* Input fields */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
