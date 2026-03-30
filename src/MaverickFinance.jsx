@@ -574,6 +574,7 @@ export default function MaverickFinance() {
         if (cloudData.plannerDismissedByMonth) setPlannerDismissedByMonth(cloudData.plannerDismissedByMonth);
         if (cloudData.plannerPaidByMonth) setPlannerPaidByMonth(cloudData.plannerPaidByMonth);
         if (cloudData.plannerNotesByMonth) setPlannerNotesByMonth(cloudData.plannerNotesByMonth);
+        if (cloudData.plannerAmountOverridesByMonth) setPlannerAmountOverridesByMonth(cloudData.plannerAmountOverridesByMonth);
         if (cloudData.customCategories) setCustomCategories(cloudData.customCategories);
         if (cloudData.categoryBudgets) setCategoryBudgets(cloudData.categoryBudgets);
         if (cloudData.darkMode !== undefined) setDarkMode(cloudData.darkMode);
@@ -655,6 +656,12 @@ export default function MaverickFinance() {
   const [plannerNotesByMonth, setPlannerNotesByMonth] = useState(init("plannerNotesByMonth", {}));
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editingNoteText, setEditingNoteText] = useState("");
+
+  // ─── Feature: Planner one-off amount overrides ───
+  // Stores per-month per-item amount overrides: { "2026-03": { "planner-income-xyz": 1200 } }
+  const [plannerAmountOverridesByMonth, setPlannerAmountOverridesByMonth] = useState(init("plannerAmountOverridesByMonth", {}));
+  const [editingAmountId, setEditingAmountId] = useState(null);
+  const [editingAmountValue, setEditingAmountValue] = useState("");
   
   // ─── Feature 7: Budget targets per category ───
   const [categoryBudgets, setCategoryBudgets] = useState(init("categoryBudgets", {}));
@@ -1710,7 +1717,7 @@ The user's current financial data:
     try {
       const data = {
         incomeSources, bills, goals, debts, expensesByMonth, extraChecks, incomeOverrides,
-        plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth,
+        plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth, plannerAmountOverridesByMonth,
         customCategories, categoryBudgets, darkMode, activeTheme,
         assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
         payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
@@ -1722,7 +1729,7 @@ The user's current financial data:
       saveToCloud(data);
     } catch (e) { /* storage full or unavailable — silent fail */ }
   }, [incomeSources, bills, goals, debts, expensesByMonth, extraChecks, incomeOverrides,
-    plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth,
+    plannerManualByMonth, plannerDismissedByMonth, plannerPaidByMonth, plannerNotesByMonth, plannerAmountOverridesByMonth,
     customCategories, categoryBudgets, darkMode, activeTheme,
     assets, liabilities, netWorthHistory, nwMilestones, balanceHistory,
     payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
@@ -2189,6 +2196,7 @@ The user's current financial data:
         if (data.plannerDismissedByMonth) setPlannerDismissedByMonth(data.plannerDismissedByMonth);
         if (data.plannerPaidByMonth) setPlannerPaidByMonth(data.plannerPaidByMonth);
         if (data.plannerNotesByMonth) setPlannerNotesByMonth(data.plannerNotesByMonth);
+        if (data.plannerAmountOverridesByMonth) setPlannerAmountOverridesByMonth(data.plannerAmountOverridesByMonth);
         if (data.customCategories) setCustomCategories(data.customCategories);
         if (data.categoryBudgets) setCategoryBudgets(data.categoryBudgets);
         if (data.darkMode !== undefined) setDarkMode(data.darkMode);
@@ -2533,8 +2541,15 @@ The user's current financial data:
         isRollover: true
       });
     }
-    return allItems;
-  }, [monthPaychecks, bills, debts, goals, subscriptions, plannerDismissed, plannerPaidMap, plannerManualItems, viewYear, viewMonth, rolloverEnabled, rolloverAmount]);
+    // Apply one-off amount overrides for this month
+    const overrides = plannerAmountOverridesByMonth[vKey] || {};
+    return allItems.map(item => {
+      if (overrides[item.id] !== undefined) {
+        return { ...item, amount: overrides[item.id], originalAmount: item.amount, isOverridden: true };
+      }
+      return item;
+    });
+  }, [monthPaychecks, bills, debts, goals, subscriptions, plannerDismissed, plannerPaidMap, plannerManualItems, viewYear, viewMonth, rolloverEnabled, rolloverAmount, plannerAmountOverridesByMonth, vKey]);
 
   const addPlannerItem = (item) => {
     const key = vKey;
@@ -2587,6 +2602,32 @@ The user's current financial data:
     setPlannerOrderByMonth({ ...plannerOrderByMonth, [key]: newOrder });
     setDraggedItemId(null);
     setDragOverItemId(null);
+  };
+
+  // ── Planner one-off amount override ──
+  const savePlannerAmountOverride = (id) => {
+    const key = vKey;
+    const val = parseFloat(editingAmountValue);
+    if (isNaN(val) || val < 0) { setEditingAmountId(null); return; }
+    // For manual items, edit the item directly
+    const manualItems = plannerManualByMonth[key] || [];
+    const isManual = manualItems.some(m => m.id === id);
+    if (isManual) {
+      setPlannerManualByMonth({ ...plannerManualByMonth, [key]: manualItems.map(m => m.id === id ? { ...m, amount: val } : m) });
+    } else {
+      // For auto items, store a one-off override for this month only
+      const overrides = { ...(plannerAmountOverridesByMonth[key] || {}), [id]: val };
+      setPlannerAmountOverridesByMonth({ ...plannerAmountOverridesByMonth, [key]: overrides });
+    }
+    setEditingAmountId(null);
+    setEditingAmountValue("");
+    setSwipedItemId(null);
+  };
+  const clearPlannerAmountOverride = (id) => {
+    const key = vKey;
+    const overrides = { ...(plannerAmountOverridesByMonth[key] || {}) };
+    delete overrides[id];
+    setPlannerAmountOverridesByMonth({ ...plannerAmountOverridesByMonth, [key]: overrides });
   };
 
   // ── Net Worth CRUD ──
@@ -4829,6 +4870,16 @@ The user's current financial data:
                             className: item.paid ? "bg-gray-500" : "bg-emerald-500",
                           },
                           {
+                            label: "Edit",
+                            icon: <Calculator size={16} />,
+                            onClick: () => {
+                              setEditingAmountId(item.id);
+                              setEditingAmountValue(String(item.amount));
+                              setSwipedItemId(null);
+                            },
+                            className: "bg-blue-500",
+                          },
+                          {
                             label: "Copy",
                             icon: <Copy size={16} />,
                             onClick: () => duplicatePlannerItem(item.id),
@@ -4904,6 +4955,9 @@ The user's current financial data:
                             </div>
                             <p className="text-[10px] text-gray-400 uppercase tracking-wide">
                               {item.type}{item.paid ? " · paid" : ""}{item.auto ? " · synced" : ""}{item.dateLabel ? ` · ${item.dateLabel}` : ""}
+                              {item.isOverridden && (
+                                <span className="text-blue-500 normal-case"> · edited this month</span>
+                              )}
                             </p>
                             {editingNoteId === item.id ? (
                               <div className="mt-2 flex gap-2">
@@ -4925,16 +4979,42 @@ The user's current financial data:
                             )}
                           </div>
 
-                          {/* Amount */}
-                          <span className={`text-sm font-bold flex-shrink-0 ${
-                            item.paid
-                              ? "text-gray-400"
-                              : isIncome
-                                ? "text-emerald-600"
-                                : "text-rose-500"
-                          }`}>
-                            {isIncome ? "+" : "−"}{fmt(item.amount)}
-                          </span>
+                          {/* Amount — with inline edit and override indicator */}
+                          {editingAmountId === item.id ? (
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              <span className={`text-xs ${isIncome ? 'text-emerald-500' : 'text-rose-400'}`}>$</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={editingAmountValue}
+                                onChange={(e) => setEditingAmountValue(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') savePlannerAmountOverride(item.id); if (e.key === 'Escape') setEditingAmountId(null); }}
+                                className={`w-20 px-2 py-1 border rounded text-xs text-right font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')}`}
+                                autoFocus
+                              />
+                              <button onClick={() => savePlannerAmountOverride(item.id)} className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600"><Check size={12} /></button>
+                              <button onClick={() => setEditingAmountId(null)} className="p-1 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"><X size={12} /></button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <span className={`text-sm font-bold ${
+                                item.paid
+                                  ? "text-gray-400"
+                                  : isIncome
+                                    ? "text-emerald-600"
+                                    : "text-rose-500"
+                              }`}>
+                                {isIncome ? "+" : "−"}{fmt(item.amount)}
+                              </span>
+                              {item.isOverridden && (
+                                <button onClick={() => clearPlannerAmountOverride(item.id)} title={`Reset to ${fmt(item.originalAmount)}`}
+                                  className="p-0.5 rounded hover:bg-gray-100 transition-colors group">
+                                  <RefreshCw size={10} className="text-blue-400 group-hover:text-blue-600" />
+                                </button>
+                              )}
+                            </div>
+                          )}
 
                           {/* Running balance */}
                           <span className={`text-xs font-semibold w-20 text-right flex-shrink-0 ${
