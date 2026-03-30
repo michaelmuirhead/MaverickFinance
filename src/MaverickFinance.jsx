@@ -2448,8 +2448,9 @@ The user's current financial data:
     // Income: from monthPaychecks (generated + extras)
     monthPaychecks.forEach((p) => {
       const pid = `planner-income-${p.id}`;
+      const incDay = String(p.date.getDate()).padStart(2, "0");
       auto.push({ id: pid, label: p.label, amount: p.amount, type: "income", paid: !!plannerPaidMap[pid], auto: true, source: "income",
-        dateSortKey: p.date.toISOString(), dateLabel: p.date.toLocaleDateString("en-US", { month: "short", day: "numeric" }) });
+        dateSortKey: `${viewYear}-${mm}-${incDay}`, dateLabel: p.date.toLocaleDateString("en-US", { month: "short", day: "numeric" }) });
     });
     // Recurring bills
     const mm = String(viewMonth + 1).padStart(2, "0");
