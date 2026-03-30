@@ -817,11 +817,17 @@ export default function MaverickFinance() {
   // ═══════════════════════════════════════════════════════════════════════
   const [ficoInputs, setFicoInputs] = useState(init("ficoInputs", {
     paymentHistory: "excellent",  // excellent, good, fair, poor
+    onTimePaymentPct: 100,        // 0-100 on-time payment percentage
+    latePayments30: 0,            // 30-day lates
+    latePayments60: 0,            // 60-day lates
+    latePayments90: 0,            // 90+ day lates
     oldestAccountYears: 5,
+    avgAccountAgeYears: 3,        // average age of all accounts
     totalAccounts: 5,
     hardInquiries: 1,
     missedPayments: 0,
     hasCollections: false,
+    collectionsCount: 0,          // number of collection accounts
     hasBankruptcy: false,
   }));
   const [ficoWhatIf, setFicoWhatIf] = useState(null); // { action: string, delta: number }
@@ -860,10 +866,10 @@ export default function MaverickFinance() {
     return fullText;
   };
 
-  // Parse FICO report text to extract credit data
+  // Parse FICO report text to extract credit data (enhanced with factor codes + granular data)
   const parseFicoReport = (text) => {
     const t = text.replace(/\s+/g, ' ');
-    const result = {};
+    const result = { factorCodes: [] };
 
     // Extract FICO / credit score — look for common patterns
     const scorePatterns = [
@@ -890,6 +896,14 @@ export default function MaverickFinance() {
       const m = t.match(pat);
       if (m) { result.paymentHistoryPct = parseInt(m[1]); break; }
     }
+
+    // Late payment severity breakdown (30/60/90 day)
+    const late30Pats = [/(\d{1,3})\s*(?:times?\s*)?30\s*(?:-?\s*day)?\s*late/i, /30\s*(?:-?\s*day)?\s*late[:\s]*(\d{1,3})/i];
+    const late60Pats = [/(\d{1,3})\s*(?:times?\s*)?60\s*(?:-?\s*day)?\s*late/i, /60\s*(?:-?\s*day)?\s*late[:\s]*(\d{1,3})/i];
+    const late90Pats = [/(\d{1,3})\s*(?:times?\s*)?90\s*(?:-?\s*day)?\s*late/i, /90\+?\s*(?:-?\s*day)?\s*late[:\s]*(\d{1,3})/i];
+    for (const pat of late30Pats) { const m = t.match(pat); if (m) { result.latePayments30 = parseInt(m[1]); break; } }
+    for (const pat of late60Pats) { const m = t.match(pat); if (m) { result.latePayments60 = parseInt(m[1]); break; } }
+    for (const pat of late90Pats) { const m = t.match(pat); if (m) { result.latePayments90 = parseInt(m[1]); break; } }
 
     // Number of accounts
     const acctPats = [
@@ -920,12 +934,22 @@ export default function MaverickFinance() {
       /[Oo]ldest\s*[Aa]ccount\s*[:\s]*(\d{1,2})\s*(?:yr|year)/i,
       /[Aa]ge\s*of\s*[Oo]ldest\s*[Aa]ccount\s*[:\s]*(\d{1,2})/i,
       /[Cc]redit\s*[Hh]istory\s*[Ll]ength\s*[:\s]*(\d{1,2})\s*(?:yr|year)/i,
-      /[Aa]verage\s*[Aa]ge\s*[:\s]*(\d{1,2})\s*(?:yr|year)/i,
-      /(\d{1,2})\s*(?:yr|year)s?\s*(?:,\s*\d+\s*mo)?\s*(?:oldest|credit\s*history|average\s*age)/i,
+      /(\d{1,2})\s*(?:yr|year)s?\s*(?:,\s*\d+\s*mo)?\s*(?:oldest|credit\s*history)/i,
     ];
     for (const pat of agePats) {
       const m = t.match(pat);
       if (m) { const y = parseInt(m[1]); if (y > 0 && y < 60) { result.oldestAccountYears = y; break; } }
+    }
+
+    // Average age of accounts
+    const avgAgePats = [
+      /[Aa]verage\s*(?:[Aa]ge|[Ll]ength)\s*(?:of\s*)?(?:[Aa]ccounts?)?\s*[:\s]*(\d{1,2})\s*(?:yr|year)/i,
+      /(\d{1,2})\s*(?:yr|year)s?\s*(?:,\s*\d+\s*mo)?\s*average\s*age/i,
+      /[Aa]vg\.?\s*[Aa]ge\s*[:\s]*(\d{1,2})/i,
+    ];
+    for (const pat of avgAgePats) {
+      const m = t.match(pat);
+      if (m) { const y = parseInt(m[1]); if (y > 0 && y < 60) { result.avgAccountAgeYears = y; break; } }
     }
 
     // Hard inquiries
@@ -940,7 +964,7 @@ export default function MaverickFinance() {
       if (m) { const n = parseInt(m[1]); if (n >= 0 && n < 30) { result.hardInquiries = n; break; } }
     }
 
-    // Late / missed payments
+    // Late / missed payments (total)
     const latePats = [
       /[Ll]ate\s*[Pp]ayments?\s*[:\s]*(\d{1,3})/,
       /[Mm]issed\s*[Pp]ayments?\s*[:\s]*(\d{1,3})/,
@@ -952,15 +976,15 @@ export default function MaverickFinance() {
       if (m) { const n = parseInt(m[1]); if (n >= 0 && n < 100) { result.missedPayments = n; break; } }
     }
 
-    // Collections
+    // Collections count
     const collPats = [
+      /[Cc]ollections?\s*[Aa]ccounts?\s*[:\s]*(\d{1,2})/,
       /[Cc]ollections?\s*[:\s]*(\d{1,2})/,
       /(\d{1,2})\s*(?:collection|account.{0,10}collection)/i,
-      /[Cc]ollections?\s*[Aa]ccounts?\s*[:\s]*(\d{1,2})/,
     ];
     for (const pat of collPats) {
       const m = t.match(pat);
-      if (m) { const n = parseInt(m[1]); if (n > 0) { result.hasCollections = true; break; } }
+      if (m) { const n = parseInt(m[1]); if (n > 0) { result.hasCollections = true; result.collectionsCount = n; break; } }
     }
     if (!result.hasCollections) {
       result.hasCollections = /collection/i.test(t) && /(?:account|balance|amount)/i.test(t);
@@ -968,6 +992,28 @@ export default function MaverickFinance() {
 
     // Bankruptcy
     result.hasBankruptcy = /[Bb]ankruptcy/i.test(t) && !/no\s*bankruptcy/i.test(t);
+
+    // FICO Factor Codes — extract negative factors that hurt the score
+    // These are the standardized reason codes from credit reports
+    const factorCodeMap = [
+      { pattern: /(?:proportion|ratio|amount)\s*(?:of\s*)?(?:balances?\s*(?:to|on)\s*)?(?:revolving\s*)?(?:credit\s*)?limits?\s*(?:is\s*)?too\s*high/i, code: 'high_utilization', label: 'High credit utilization', impact: -30 },
+      { pattern: /too\s*many\s*accounts\s*with\s*balances/i, code: 'many_balances', label: 'Too many accounts with balances', impact: -15 },
+      { pattern: /(?:length|age)\s*of\s*(?:time|credit)\s*(?:accounts?\s*)?(?:have\s*been\s*)?(?:established|open)\s*(?:is\s*)?(?:too\s*)?(?:short|not\s*long)/i, code: 'short_history', label: 'Short credit history', impact: -20 },
+      { pattern: /too\s*many\s*(?:recent\s*)?inquir/i, code: 'many_inquiries', label: 'Too many recent inquiries', impact: -15 },
+      { pattern: /(?:serious\s*)?delinquency/i, code: 'delinquency', label: 'Serious delinquency on record', impact: -40 },
+      { pattern: /(?:too\s*few|lack\s*of)\s*(?:recent\s*)?(?:revolving\s*)?(?:account|card)/i, code: 'few_accounts', label: 'Too few accounts', impact: -10 },
+      { pattern: /(?:high|excessive)\s*(?:number\s*of\s*)?(?:revolving\s*)?(?:balance|debt)/i, code: 'high_balances', label: 'High revolving balances', impact: -25 },
+      { pattern: /(?:time\s*since\s*)?(?:most\s*recent\s*)?(?:account\s*)?(?:opening|opened)\s*(?:is\s*)?too\s*(?:short|recent)/i, code: 'recent_account', label: 'Recently opened account', impact: -10 },
+      { pattern: /(?:number\s*of\s*)?accounts\s*(?:with\s*)?(?:delinquency|late\s*payment)/i, code: 'delinquent_accounts', label: 'Accounts with late payments', impact: -35 },
+      { pattern: /(?:public\s*record|collection|judgment)/i, code: 'public_record', label: 'Public record or collection', impact: -50 },
+      { pattern: /(?:too\s*many|number\s*of)\s*(?:consumer\s*finance|finance\s*company)\s*accounts/i, code: 'finance_accounts', label: 'Too many finance company accounts', impact: -10 },
+      { pattern: /lack\s*of\s*(?:recent\s*)?(?:installment|loan)\s*(?:information|loan|account)/i, code: 'no_installment', label: 'No recent installment loan info', impact: -10 },
+    ];
+    for (const fc of factorCodeMap) {
+      if (fc.pattern.test(t)) {
+        result.factorCodes.push({ code: fc.code, label: fc.label, impact: fc.impact });
+      }
+    }
 
     return result;
   };
@@ -1002,17 +1048,31 @@ export default function MaverickFinance() {
       }
 
       if (parsed.paymentHistoryPct !== undefined) {
+        updates.onTimePaymentPct = parsed.paymentHistoryPct;
         if (parsed.paymentHistoryPct >= 99) updates.paymentHistory = 'excellent';
         else if (parsed.paymentHistoryPct >= 95) updates.paymentHistory = 'good';
         else if (parsed.paymentHistoryPct >= 85) updates.paymentHistory = 'fair';
         else updates.paymentHistory = 'poor';
       }
 
+      // Late payment severity breakdown
+      if (parsed.latePayments30 !== undefined) updates.latePayments30 = parsed.latePayments30;
+      if (parsed.latePayments60 !== undefined) updates.latePayments60 = parsed.latePayments60;
+      if (parsed.latePayments90 !== undefined) updates.latePayments90 = parsed.latePayments90;
+      // Total missed = sum of severity breakdowns if available, else use total
+      const totalFromBreakdown = (parsed.latePayments30 || 0) + (parsed.latePayments60 || 0) + (parsed.latePayments90 || 0);
+      if (totalFromBreakdown > 0) {
+        updates.missedPayments = totalFromBreakdown;
+      } else if (parsed.missedPayments !== undefined) {
+        updates.missedPayments = parsed.missedPayments;
+      }
+
       if (parsed.oldestAccountYears) updates.oldestAccountYears = parsed.oldestAccountYears;
+      if (parsed.avgAccountAgeYears) updates.avgAccountAgeYears = parsed.avgAccountAgeYears;
       if (parsed.totalAccounts) updates.totalAccounts = parsed.totalAccounts;
       if (parsed.hardInquiries !== undefined) updates.hardInquiries = parsed.hardInquiries;
-      if (parsed.missedPayments !== undefined) updates.missedPayments = parsed.missedPayments;
       if (parsed.hasCollections !== undefined) updates.hasCollections = parsed.hasCollections;
+      if (parsed.collectionsCount !== undefined) updates.collectionsCount = parsed.collectionsCount;
       if (parsed.hasBankruptcy !== undefined) updates.hasBankruptcy = parsed.hasBankruptcy;
 
       setFicoInputs(updates);
@@ -1027,56 +1087,104 @@ export default function MaverickFinance() {
   };
 
   const estimateFico = (inputs, debtData) => {
-    // Credit utilization from actual debt data
+    // Credit utilization from actual debt data — per-card + aggregate
     const creditDebts = debtData.filter(d => d.debtType === 'credit_card' || d.debtType === 'line_of_credit');
     const totalUsed = creditDebts.reduce((s, d) => s + d.balance, 0);
     const totalLimit = creditDebts.reduce((s, d) => s + (d.creditLimit || 0), 0);
-    const utilization = totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
+    const aggregateUtil = totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
+
+    // Per-card utilization penalty: cards over 50% hurt more than aggregate suggests
+    let perCardPenalty = 0;
+    if (creditDebts.length > 0) {
+      creditDebts.forEach(d => {
+        if (d.creditLimit && d.creditLimit > 0) {
+          const cardUtil = (d.balance / d.creditLimit) * 100;
+          if (cardUtil > 90) perCardPenalty += 20;
+          else if (cardUtil > 75) perCardPenalty += 12;
+          else if (cardUtil > 50) perCardPenalty += 6;
+        }
+      });
+      perCardPenalty = Math.min(perCardPenalty, 60); // cap
+    }
 
     let score = 300; // Base
 
     // Payment history (35% of FICO = max ~247 points)
-    const payHistMap = { excellent: 247, good: 210, fair: 160, poor: 100 };
-    score += payHistMap[inputs.paymentHistory] || 160;
-    score -= Math.min(inputs.missedPayments * 40, 150);
+    // Use on-time percentage for finer granularity, with late severity penalties
+    const onTimePct = inputs.onTimePaymentPct ?? 100;
+    // Map percentage to base points (nonlinear — top end matters most)
+    let payHistPts;
+    if (onTimePct >= 100) payHistPts = 247;
+    else if (onTimePct >= 99) payHistPts = 237;
+    else if (onTimePct >= 98) payHistPts = 225;
+    else if (onTimePct >= 97) payHistPts = 215;
+    else if (onTimePct >= 95) payHistPts = 200;
+    else if (onTimePct >= 90) payHistPts = 175;
+    else if (onTimePct >= 85) payHistPts = 150;
+    else if (onTimePct >= 75) payHistPts = 120;
+    else payHistPts = Math.max(60, 120 - (75 - onTimePct) * 2);
+    score += payHistPts;
 
-    // Credit utilization (30% = max ~212 points)
-    if (utilization <= 1) score += 212;
-    else if (utilization <= 10) score += 195;
-    else if (utilization <= 20) score += 175;
-    else if (utilization <= 30) score += 155;
-    else if (utilization <= 50) score += 120;
-    else if (utilization <= 75) score += 80;
-    else score += 40;
+    // Late payment severity penalties (90-day hurts 3x more than 30-day)
+    const late30 = inputs.latePayments30 || 0;
+    const late60 = inputs.latePayments60 || 0;
+    const late90 = inputs.latePayments90 || 0;
+    score -= Math.min(late30 * 15, 45);   // 30-day lates: -15 each, cap -45
+    score -= Math.min(late60 * 30, 60);   // 60-day lates: -30 each, cap -60
+    score -= Math.min(late90 * 50, 100);  // 90+ day lates: -50 each, cap -100
+    // Also still penalize generic missed payments if severity breakdown not provided
+    if (late30 === 0 && late60 === 0 && late90 === 0) {
+      score -= Math.min((inputs.missedPayments || 0) * 35, 140);
+    }
 
-    // Credit age (15% = max ~106 points)
-    const age = inputs.oldestAccountYears || 0;
-    if (age >= 20) score += 106;
-    else if (age >= 10) score += 90;
-    else if (age >= 7) score += 75;
-    else if (age >= 5) score += 60;
-    else if (age >= 3) score += 45;
-    else if (age >= 1) score += 30;
-    else score += 15;
+    // Credit utilization (30% = max ~212 points) — aggregate with per-card penalty
+    let utilPts;
+    if (aggregateUtil <= 1) utilPts = 212;
+    else if (aggregateUtil <= 5) utilPts = 205;
+    else if (aggregateUtil <= 10) utilPts = 195;
+    else if (aggregateUtil <= 20) utilPts = 175;
+    else if (aggregateUtil <= 30) utilPts = 155;
+    else if (aggregateUtil <= 40) utilPts = 135;
+    else if (aggregateUtil <= 50) utilPts = 115;
+    else if (aggregateUtil <= 65) utilPts = 90;
+    else if (aggregateUtil <= 75) utilPts = 70;
+    else if (aggregateUtil <= 90) utilPts = 50;
+    else utilPts = 30;
+    score += utilPts - perCardPenalty;
+
+    // Credit age (15% = max ~106 points) — weighted: oldest (60%) + average (40%)
+    const oldest = inputs.oldestAccountYears || 0;
+    const avgAge = inputs.avgAccountAgeYears || Math.round(oldest * 0.6); // fallback estimate
+    const oldestPts = oldest >= 25 ? 64 : oldest >= 20 ? 60 : oldest >= 15 ? 54 : oldest >= 10 ? 48 : oldest >= 7 ? 40 : oldest >= 5 ? 33 : oldest >= 3 ? 25 : oldest >= 1 ? 16 : 8;
+    const avgAgePts = avgAge >= 10 ? 42 : avgAge >= 7 ? 38 : avgAge >= 5 ? 32 : avgAge >= 4 ? 27 : avgAge >= 3 ? 22 : avgAge >= 2 ? 16 : avgAge >= 1 ? 10 : 5;
+    score += oldestPts + avgAgePts;
 
     // Credit mix (10% = max ~71 points)
-    const accts = inputs.totalAccounts || 0;
     const hasMortgage = debtData.some(d => d.name && d.name.toLowerCase().includes('mortgage'));
     const hasAutoLoan = debtData.some(d => d.debtType === 'loan' && d.name && (d.name.toLowerCase().includes('car') || d.name.toLowerCase().includes('auto')));
     const hasCards = creditDebts.length > 0;
-    const mixTypes = [hasMortgage, hasAutoLoan, hasCards, debtData.some(d => d.debtType === 'loan')].filter(Boolean).length;
-    score += Math.min(mixTypes * 18, 71);
+    const hasInstallment = debtData.some(d => d.debtType === 'loan');
+    const mixTypes = [hasMortgage, hasAutoLoan, hasCards, hasInstallment].filter(Boolean).length;
+    const accts = inputs.totalAccounts || 0;
+    let mixPts = Math.min(mixTypes * 16, 64);
+    // Bonus for having diverse account count
+    if (accts >= 10) mixPts += 7;
+    else if (accts >= 5) mixPts += 4;
+    score += Math.min(mixPts, 71);
 
     // New credit / inquiries (10% = max ~71 points)
     const inq = inputs.hardInquiries || 0;
     if (inq === 0) score += 71;
     else if (inq === 1) score += 60;
-    else if (inq <= 3) score += 45;
+    else if (inq === 2) score += 50;
+    else if (inq <= 3) score += 40;
     else if (inq <= 5) score += 25;
-    else score += 10;
+    else if (inq <= 8) score += 15;
+    else score += 5;
 
-    // Negative marks
-    if (inputs.hasCollections) score -= 75;
+    // Negative marks — scaled by severity
+    const collCount = inputs.collectionsCount || (inputs.hasCollections ? 1 : 0);
+    if (collCount > 0) score -= Math.min(collCount * 50, 100); // each collection -50, max -100
     if (inputs.hasBankruptcy) score -= 150;
 
     return Math.max(300, Math.min(850, Math.round(score)));
@@ -1084,17 +1192,36 @@ export default function MaverickFinance() {
 
   const ficoScore = useMemo(() => estimateFico(ficoInputs, debts), [ficoInputs, debts]);
 
+  // Calibration offset: difference between report score and our estimate
+  // Used to anchor What-If scenarios to real-world score
+  const ficoCalibrationOffset = useMemo(() => {
+    if (!ficoReportScore) return 0;
+    return ficoReportScore - ficoScore;
+  }, [ficoReportScore, ficoScore]);
+
+  // Calibrated score = estimate + offset (clamped 300-850)
+  const ficoCalibratedScore = useMemo(() => {
+    if (!ficoReportScore) return ficoScore;
+    return Math.max(300, Math.min(850, ficoScore + ficoCalibrationOffset));
+  }, [ficoScore, ficoCalibrationOffset, ficoReportScore]);
+
   const ficoWhatIfScenarios = useMemo(() => {
     const creditDebts = debts.filter(d => d.debtType === 'credit_card' || d.debtType === 'line_of_credit');
     const totalUsed = creditDebts.reduce((s, d) => s + d.balance, 0);
     const totalLimit = creditDebts.reduce((s, d) => s + (d.creditLimit || 0), 0);
+    const baseScore = ficoCalibratedScore; // anchor to calibrated score
     const scenarios = [];
+
+    const scenarioScore = (inputs, debts) => {
+      const raw = estimateFico(inputs, debts);
+      return Math.max(300, Math.min(850, raw + ficoCalibrationOffset));
+    };
 
     // Pay off all credit cards
     if (totalUsed > 0) {
       const paidOff = debts.map(d => (d.debtType === 'credit_card' || d.debtType === 'line_of_credit') ? { ...d, balance: 0 } : d);
-      const newScore = estimateFico(ficoInputs, paidOff);
-      scenarios.push({ label: 'Pay off all credit cards', icon: '💳', newScore, delta: newScore - ficoScore });
+      const newScore = scenarioScore(ficoInputs, paidOff);
+      scenarios.push({ label: 'Pay off all credit cards', icon: '💳', newScore, delta: newScore - baseScore });
     }
 
     // Pay down to 10% utilization
@@ -1102,33 +1229,45 @@ export default function MaverickFinance() {
       const target10 = totalLimit * 0.1;
       const ratio = target10 / (totalUsed || 1);
       const reduced = debts.map(d => (d.debtType === 'credit_card' || d.debtType === 'line_of_credit') ? { ...d, balance: Math.round(d.balance * ratio) } : d);
-      const newScore = estimateFico(ficoInputs, reduced);
-      scenarios.push({ label: 'Reduce utilization to 10%', icon: '📉', newScore, delta: newScore - ficoScore });
+      const newScore = scenarioScore(ficoInputs, reduced);
+      scenarios.push({ label: 'Reduce utilization to 10%', icon: '📉', newScore, delta: newScore - baseScore });
     }
 
     // Open a new credit card (+$5000 limit)
     if (totalLimit > 0) {
       const withNewCard = [...debts, { debtType: 'credit_card', balance: 0, creditLimit: 5000, minPayment: 0, extraPayment: 0, rate: 0 }];
-      const newInputs = { ...ficoInputs, totalAccounts: (ficoInputs.totalAccounts || 0) + 1, hardInquiries: (ficoInputs.hardInquiries || 0) + 1 };
-      const newScore = estimateFico(newInputs, withNewCard);
-      scenarios.push({ label: 'Open new card ($5K limit)', icon: '🆕', newScore, delta: newScore - ficoScore });
+      const newInputs = { ...ficoInputs, totalAccounts: (ficoInputs.totalAccounts || 0) + 1, hardInquiries: (ficoInputs.hardInquiries || 0) + 1, avgAccountAgeYears: Math.max(0, (ficoInputs.avgAccountAgeYears || 3) - 0.5) };
+      const newScore = scenarioScore(newInputs, withNewCard);
+      scenarios.push({ label: 'Open new card ($5K limit)', icon: '🆕', newScore, delta: newScore - baseScore });
     }
 
-    // Miss a payment
-    const missInputs = { ...ficoInputs, missedPayments: (ficoInputs.missedPayments || 0) + 1, paymentHistory: ficoInputs.paymentHistory === 'excellent' ? 'good' : ficoInputs.paymentHistory === 'good' ? 'fair' : 'poor' };
-    const missScore = estimateFico(missInputs, debts);
-    scenarios.push({ label: 'Miss a payment', icon: '⚠️', newScore: missScore, delta: missScore - ficoScore });
+    // Miss a payment (30-day late)
+    const missInputs = { ...ficoInputs, latePayments30: (ficoInputs.latePayments30 || 0) + 1, missedPayments: (ficoInputs.missedPayments || 0) + 1, onTimePaymentPct: Math.max(0, (ficoInputs.onTimePaymentPct ?? 100) - 2) };
+    const missScore = scenarioScore(missInputs, debts);
+    scenarios.push({ label: 'Miss a payment (30-day)', icon: '⚠️', newScore: missScore, delta: missScore - baseScore });
+
+    // Miss a payment (90-day late) — severe
+    const miss90Inputs = { ...ficoInputs, latePayments90: (ficoInputs.latePayments90 || 0) + 1, missedPayments: (ficoInputs.missedPayments || 0) + 1, onTimePaymentPct: Math.max(0, (ficoInputs.onTimePaymentPct ?? 100) - 2) };
+    const miss90Score = scenarioScore(miss90Inputs, debts);
+    scenarios.push({ label: 'Miss a payment (90-day)', icon: '🚨', newScore: miss90Score, delta: miss90Score - baseScore });
 
     // Remove collections
-    if (ficoInputs.hasCollections) {
-      const noCollInputs = { ...ficoInputs, hasCollections: false };
+    if (ficoInputs.hasCollections || (ficoInputs.collectionsCount || 0) > 0) {
+      const noCollInputs = { ...ficoInputs, hasCollections: false, collectionsCount: 0 };
       const noCollDebts = debts.filter(d => d.debtType !== 'collections');
-      const newScore = estimateFico(noCollInputs, noCollDebts);
-      scenarios.push({ label: 'Remove collections from report', icon: '🧹', newScore, delta: newScore - ficoScore });
+      const newScore = scenarioScore(noCollInputs, noCollDebts);
+      scenarios.push({ label: 'Remove collections from report', icon: '🧹', newScore, delta: newScore - baseScore });
+    }
+
+    // Age credit history +2 years (time passing)
+    const agedInputs = { ...ficoInputs, oldestAccountYears: (ficoInputs.oldestAccountYears || 0) + 2, avgAccountAgeYears: (ficoInputs.avgAccountAgeYears || 0) + 2 };
+    const agedScore = scenarioScore(agedInputs, debts);
+    if (agedScore !== baseScore) {
+      scenarios.push({ label: 'Wait 2 years (age credit)', icon: '⏳', newScore: agedScore, delta: agedScore - baseScore });
     }
 
     return scenarios;
-  }, [ficoInputs, debts, ficoScore]);
+  }, [ficoInputs, debts, ficoCalibratedScore, ficoCalibrationOffset]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // GLOBAL SEARCH
@@ -1230,6 +1369,15 @@ NET WORTH:
 - Liabilities: $${totalLiabilityVal.toFixed(2)}
 - Net worth: $${netWorth.toFixed(2)}
 ${netWorthHistory.length > 1 ? `- Trend: ${netWorthHistory[netWorthHistory.length - 1]?.netWorth > netWorthHistory[netWorthHistory.length - 2]?.netWorth ? 'Increasing' : 'Decreasing'}` : ''}
+
+FICO SCORE:
+- Estimated score: ${ficoCalibratedScore}${ficoReportScore ? ` (calibrated from report score: ${ficoReportScore})` : ''}
+- On-time payment: ${ficoInputs.onTimePaymentPct ?? 100}%
+- Late payments: ${(ficoInputs.latePayments30 || 0)} x30-day, ${(ficoInputs.latePayments60 || 0)} x60-day, ${(ficoInputs.latePayments90 || 0)} x90+-day
+- Oldest account: ${ficoInputs.oldestAccountYears} yrs, Avg age: ${ficoInputs.avgAccountAgeYears || 'N/A'} yrs
+- Hard inquiries (2yr): ${ficoInputs.hardInquiries}
+- Collections: ${ficoInputs.hasCollections ? `Yes (${ficoInputs.collectionsCount || 1} accounts)` : 'No'}
+- Bankruptcy: ${ficoInputs.hasBankruptcy ? 'Yes' : 'No'}
 
 CASH FLOW:
 - Starting balance: $${cashFlowStartBal}
@@ -5978,14 +6126,19 @@ The user's current financial data:
                 <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} flex items-center gap-2`}>
                   <Shield size={15} className="text-indigo-500" /> FICO Score Estimator
                 </h3>
-                <div className={`text-3xl font-black ${ficoScore >= 740 ? 'text-emerald-500' : ficoScore >= 670 ? 'text-yellow-500' : ficoScore >= 580 ? 'text-amber-500' : 'text-rose-500'}`}>
-                  {ficoScore}
+                <div className="text-right">
+                  <div className={`text-3xl font-black ${ficoCalibratedScore >= 740 ? 'text-emerald-500' : ficoCalibratedScore >= 670 ? 'text-yellow-500' : ficoCalibratedScore >= 580 ? 'text-amber-500' : 'text-rose-500'}`}>
+                    {ficoCalibratedScore}
+                  </div>
+                  {ficoReportScore && ficoCalibrationOffset !== 0 && (
+                    <div className={`text-[9px] ${dm('text-gray-400', 'text-gray-500')}`}>calibrated from report</div>
+                  )}
                 </div>
               </div>
 
               {/* Score bar */}
               <div className="relative h-4 rounded-full overflow-hidden bg-gradient-to-r from-rose-500 via-amber-400 via-yellow-400 to-emerald-500 mb-1">
-                <div className="absolute top-0 h-full w-1 bg-white shadow-lg rounded-full" style={{ left: `${Math.max(0, Math.min(100, ((ficoScore - 300) / 550) * 100))}%`, transform: 'translateX(-50%)' }} />
+                <div className="absolute top-0 h-full w-1 bg-white shadow-lg rounded-full" style={{ left: `${Math.max(0, Math.min(100, ((ficoCalibratedScore - 300) / 550) * 100))}%`, transform: 'translateX(-50%)' }} />
               </div>
               <div className="flex justify-between text-[9px] text-gray-400 mb-4">
                 <span>300 Poor</span><span>580 Fair</span><span>670 Good</span><span>740 Very Good</span><span>850</span>
@@ -6014,66 +6167,111 @@ The user's current financial data:
                 </div>
               </div>
 
-              {/* Report score vs estimated score comparison */}
+              {/* Report score vs estimated score comparison + calibration */}
               {ficoReportScore && (
-                <div className={`flex items-center gap-4 px-3 py-2 rounded-lg mb-4 ${dm('bg-emerald-50 border border-emerald-200', 'bg-emerald-900/20 border border-emerald-800')}`}>
-                  <div className="text-center">
-                    <div className={`text-[9px] font-medium ${dm('text-gray-500', 'text-gray-400')}`}>Report Score</div>
-                    <div className="text-lg font-black text-emerald-600">{ficoReportScore}</div>
+                <div className={`px-3 py-3 rounded-lg mb-4 ${dm('bg-emerald-50 border border-emerald-200', 'bg-emerald-900/20 border border-emerald-800')}`}>
+                  <div className="flex items-center gap-4">
+                    <div className="text-center">
+                      <div className={`text-[9px] font-medium ${dm('text-gray-500', 'text-gray-400')}`}>Report Score</div>
+                      <div className="text-lg font-black text-emerald-600">{ficoReportScore}</div>
+                    </div>
+                    <div className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>vs</div>
+                    <div className="text-center">
+                      <div className={`text-[9px] font-medium ${dm('text-gray-500', 'text-gray-400')}`}>Raw Estimate</div>
+                      <div className={`text-lg font-black ${ficoScore >= 740 ? 'text-emerald-500' : ficoScore >= 670 ? 'text-yellow-500' : ficoScore >= 580 ? 'text-amber-500' : 'text-rose-500'}`}>{ficoScore}</div>
+                    </div>
+                    {ficoCalibrationOffset !== 0 && (
+                      <>
+                        <div className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>=</div>
+                        <div className="text-center">
+                          <div className={`text-[9px] font-medium ${dm('text-gray-500', 'text-gray-400')}`}>Offset</div>
+                          <div className={`text-sm font-bold ${ficoCalibrationOffset > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                            {ficoCalibrationOffset > 0 ? '+' : ''}{ficoCalibrationOffset}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    <div className={`text-[9px] ${dm('text-gray-400', 'text-gray-500')} flex-1`}>
+                      {Math.abs(ficoReportScore - ficoScore) <= 10 ? 'Estimate is very close to your actual score!' : Math.abs(ficoReportScore - ficoScore) <= 30 ? `Calibration offset of ${ficoCalibrationOffset > 0 ? '+' : ''}${ficoCalibrationOffset} applied to What-If scenarios.` : `Gap of ${Math.abs(ficoReportScore - ficoScore)} pts — What-If scenarios use your report score as the anchor.`}
+                    </div>
+                    <button onClick={() => { setFicoReportScore(null); setFicoReportStatus(null); }}
+                      className={`text-[9px] ${dm('text-gray-400 hover:text-gray-600', 'text-gray-500 hover:text-gray-300')} transition-colors`}>
+                      <X size={12} />
+                    </button>
                   </div>
-                  <div className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>vs</div>
-                  <div className="text-center">
-                    <div className={`text-[9px] font-medium ${dm('text-gray-500', 'text-gray-400')}`}>Estimated</div>
-                    <div className={`text-lg font-black ${ficoScore >= 740 ? 'text-emerald-500' : ficoScore >= 670 ? 'text-yellow-500' : ficoScore >= 580 ? 'text-amber-500' : 'text-rose-500'}`}>{ficoScore}</div>
-                  </div>
-                  <div className={`text-[9px] ${dm('text-gray-400', 'text-gray-500')} flex-1`}>
-                    {Math.abs(ficoReportScore - ficoScore) <= 20 ? 'Estimate is close to your actual score!' : `Difference of ${Math.abs(ficoReportScore - ficoScore)} pts — adjust inputs above for better accuracy.`}
-                  </div>
-                  <button onClick={() => { setFicoReportScore(null); setFicoReportStatus(null); }}
-                    className={`text-[9px] ${dm('text-gray-400 hover:text-gray-600', 'text-gray-500 hover:text-gray-300')} transition-colors`}>
-                    <X size={12} />
-                  </button>
                 </div>
               )}
 
-              {/* Input fields */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                <div>
-                  <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Payment History</label>
-                  <select value={ficoInputs.paymentHistory} onChange={(e) => setFicoInputs({ ...ficoInputs, paymentHistory: e.target.value })}
-                    className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`}>
-                    <option value="excellent">Excellent (no lates)</option>
-                    <option value="good">Good (1-2 lates)</option>
-                    <option value="fair">Fair (some lates)</option>
-                    <option value="poor">Poor (many lates)</option>
-                  </select>
+              {/* Input fields — Payment History section */}
+              <div className={`px-3 py-2.5 rounded-lg mb-3 ${dm('bg-gray-50', 'bg-slate-800/50')}`}>
+                <h4 className={`text-[10px] font-semibold ${dm('text-gray-600', 'text-gray-300')} mb-2`}>Payment History (35% of score)</h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>On-Time Payment %</label>
+                    <input type="number" min="0" max="100" step="0.1" value={ficoInputs.onTimePaymentPct ?? 100} onChange={(e) => setFicoInputs({ ...ficoInputs, onTimePaymentPct: Math.min(100, Math.max(0, +e.target.value || 0)) })}
+                      className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>30-Day Lates</label>
+                    <input type="number" min="0" max="50" value={ficoInputs.latePayments30 || 0} onChange={(e) => setFicoInputs({ ...ficoInputs, latePayments30: +e.target.value || 0 })}
+                      className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>60-Day Lates</label>
+                    <input type="number" min="0" max="50" value={ficoInputs.latePayments60 || 0} onChange={(e) => setFicoInputs({ ...ficoInputs, latePayments60: +e.target.value || 0 })}
+                      className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>90+ Day Lates</label>
+                    <input type="number" min="0" max="50" value={ficoInputs.latePayments90 || 0} onChange={(e) => setFicoInputs({ ...ficoInputs, latePayments90: +e.target.value || 0 })}
+                      className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                  </div>
                 </div>
-                <div>
-                  <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Oldest Account (yrs)</label>
-                  <input type="number" min="0" max="50" value={ficoInputs.oldestAccountYears} onChange={(e) => setFicoInputs({ ...ficoInputs, oldestAccountYears: +e.target.value || 0 })}
-                    className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+              </div>
+
+              {/* Credit Age + Account Info section */}
+              <div className={`px-3 py-2.5 rounded-lg mb-3 ${dm('bg-gray-50', 'bg-slate-800/50')}`}>
+                <h4 className={`text-[10px] font-semibold ${dm('text-gray-600', 'text-gray-300')} mb-2`}>Credit Age & Accounts (25% of score)</h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Oldest Account (yrs)</label>
+                    <input type="number" min="0" max="50" value={ficoInputs.oldestAccountYears} onChange={(e) => setFicoInputs({ ...ficoInputs, oldestAccountYears: +e.target.value || 0 })}
+                      className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Avg Account Age (yrs)</label>
+                    <input type="number" min="0" max="50" step="0.5" value={ficoInputs.avgAccountAgeYears || 0} onChange={(e) => setFicoInputs({ ...ficoInputs, avgAccountAgeYears: +e.target.value || 0 })}
+                      className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Total Accounts</label>
+                    <input type="number" min="0" max="50" value={ficoInputs.totalAccounts} onChange={(e) => setFicoInputs({ ...ficoInputs, totalAccounts: +e.target.value || 0 })}
+                      className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Hard Inquiries (2yr)</label>
+                    <input type="number" min="0" max="20" value={ficoInputs.hardInquiries} onChange={(e) => setFicoInputs({ ...ficoInputs, hardInquiries: +e.target.value || 0 })}
+                      className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                  </div>
                 </div>
-                <div>
-                  <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Total Accounts</label>
-                  <input type="number" min="0" max="50" value={ficoInputs.totalAccounts} onChange={(e) => setFicoInputs({ ...ficoInputs, totalAccounts: +e.target.value || 0 })}
-                    className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
-                </div>
-                <div>
-                  <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Hard Inquiries (2yr)</label>
-                  <input type="number" min="0" max="20" value={ficoInputs.hardInquiries} onChange={(e) => setFicoInputs({ ...ficoInputs, hardInquiries: +e.target.value || 0 })}
-                    className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
-                </div>
-                <div>
-                  <label className={`text-[10px] font-medium ${dm('text-gray-500', 'text-gray-400')} block mb-1`}>Missed Payments</label>
-                  <input type="number" min="0" max="20" value={ficoInputs.missedPayments} onChange={(e) => setFicoInputs({ ...ficoInputs, missedPayments: +e.target.value || 0 })}
-                    className={`w-full px-2 py-1.5 border rounded-lg text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
-                </div>
-                <div className="flex items-end gap-3">
+              </div>
+
+              {/* Negative Marks section */}
+              <div className={`px-3 py-2.5 rounded-lg mb-3 ${dm('bg-gray-50', 'bg-slate-800/50')}`}>
+                <h4 className={`text-[10px] font-semibold ${dm('text-gray-600', 'text-gray-300')} mb-2`}>Negative Marks</h4>
+                <div className="flex flex-wrap items-center gap-4">
                   <label className={`flex items-center gap-1.5 text-[10px] ${dm('text-gray-600', 'text-gray-300')} cursor-pointer`}>
-                    <input type="checkbox" checked={!!ficoInputs.hasCollections} onChange={(e) => setFicoInputs({ ...ficoInputs, hasCollections: e.target.checked })}
+                    <input type="checkbox" checked={!!ficoInputs.hasCollections} onChange={(e) => setFicoInputs({ ...ficoInputs, hasCollections: e.target.checked, collectionsCount: e.target.checked ? Math.max(1, ficoInputs.collectionsCount || 0) : 0 })}
                       className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                     Collections
                   </label>
+                  {ficoInputs.hasCollections && (
+                    <div className="flex items-center gap-1.5">
+                      <label className={`text-[10px] ${dm('text-gray-500', 'text-gray-400')}`}>Count:</label>
+                      <input type="number" min="1" max="20" value={ficoInputs.collectionsCount || 1} onChange={(e) => setFicoInputs({ ...ficoInputs, collectionsCount: +e.target.value || 1 })}
+                        className={`w-14 px-2 py-1 border rounded text-xs ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-1 focus:ring-indigo-500`} />
+                    </div>
+                  )}
                   <label className={`flex items-center gap-1.5 text-[10px] ${dm('text-gray-600', 'text-gray-300')} cursor-pointer`}>
                     <input type="checkbox" checked={!!ficoInputs.hasBankruptcy} onChange={(e) => setFicoInputs({ ...ficoInputs, hasBankruptcy: e.target.checked })}
                       className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
@@ -6082,17 +6280,28 @@ The user's current financial data:
                 </div>
               </div>
 
-              {/* Credit utilization auto-calculated */}
+              {/* Credit utilization auto-calculated with per-card breakdown */}
               {(() => {
                 const creditDebts = debts.filter(d => d.debtType === 'credit_card' || d.debtType === 'line_of_credit');
                 const totalUsed = creditDebts.reduce((s, d) => s + d.balance, 0);
                 const totalLimit = creditDebts.reduce((s, d) => s + (d.creditLimit || 0), 0);
                 const util = totalLimit > 0 ? Math.round((totalUsed / totalLimit) * 100) : 0;
+                const highUtilCards = creditDebts.filter(d => d.creditLimit && d.creditLimit > 0 && (d.balance / d.creditLimit) > 0.5);
                 return totalLimit > 0 ? (
-                  <div className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-4 ${dm('bg-indigo-50', 'bg-indigo-900/20')}`}>
-                    <span className={`text-[10px] font-medium ${dm('text-indigo-600', 'text-indigo-300')}`}>Credit Utilization (auto-calculated):</span>
-                    <span className={`text-sm font-bold ${util < 30 ? 'text-emerald-500' : util < 50 ? 'text-yellow-500' : 'text-rose-500'}`}>{util}%</span>
-                    <span className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>{fmt(totalUsed)} / {fmt(totalLimit)}</span>
+                  <div className={`px-3 py-2.5 rounded-lg mb-4 ${dm('bg-indigo-50', 'bg-indigo-900/20')}`}>
+                    <div className="flex items-center gap-3 mb-1">
+                      <span className={`text-[10px] font-medium ${dm('text-indigo-600', 'text-indigo-300')}`}>Credit Utilization (30% of score):</span>
+                      <span className={`text-sm font-bold ${util < 30 ? 'text-emerald-500' : util < 50 ? 'text-yellow-500' : 'text-rose-500'}`}>{util}%</span>
+                      <span className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>{fmt(totalUsed)} / {fmt(totalLimit)}</span>
+                    </div>
+                    {highUtilCards.length > 0 && (
+                      <div className={`text-[9px] ${dm('text-amber-600', 'text-amber-400')} mt-1`}>
+                        {highUtilCards.length} card{highUtilCards.length > 1 ? 's' : ''} over 50% utilization — per-card utilization hurts more than aggregate.
+                        {highUtilCards.map((c, i) => (
+                          <span key={i} className="ml-1">{c.name || 'Card'}: {Math.round((c.balance / c.creditLimit) * 100)}%{i < highUtilCards.length - 1 ? ',' : ''}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')} mb-4`}>Add credit cards above to auto-calculate utilization impact.</p>
@@ -6104,6 +6313,7 @@ The user's current financial data:
                 <div>
                   <h4 className={`text-xs font-semibold ${dm('text-gray-700', 'text-gray-300')} mb-2 flex items-center gap-1.5`}>
                     <Zap size={12} className="text-amber-500" /> What If...
+                    {ficoReportScore && <span className={`text-[9px] font-normal ${dm('text-gray-400', 'text-gray-500')}`}>(anchored to your {ficoReportScore} report score)</span>}
                   </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {ficoWhatIfScenarios.map((s, i) => (
@@ -6125,7 +6335,7 @@ The user's current financial data:
               )}
 
               <p className={`text-[9px] ${dm('text-gray-400', 'text-gray-500')} mt-3`}>
-                * This is an estimate based on general FICO scoring factors. Your actual score may vary. For an official score, check with your credit bureau.
+                * {ficoReportScore ? 'Scenarios are calibrated to your uploaded report score. Deltas show estimated impact from that baseline.' : 'This is an estimate based on general FICO scoring factors. Upload a FICO report for calibrated results.'} Your actual score may vary.
               </p>
             </Card>
           </>
