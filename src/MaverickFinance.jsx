@@ -198,13 +198,13 @@ function EmptyState({ icon: Icon, message }) {
 }
 
 // ─── Swipeable Row (touch + mouse drag to reveal actions) ─────────────────
-function SwipeRow({ children, actions, isOpen, onToggle, darkMode }) {
+function SwipeRow({ children, actions, isOpen, onToggle, darkMode, disabled }) {
   const [dragX, setDragX] = useState(0);
   const [startX, setStartX] = useState(null);
   const [dragging, setDragging] = useState(false);
   const actionsWidth = actions.length * 64; // 64px per action button
 
-  const handleStart = (x) => { setStartX(x); setDragging(true); };
+  const handleStart = (x) => { if (disabled) return; setStartX(x); setDragging(true); };
   const handleMove = (x) => {
     if (!dragging || startX === null) return;
     const diff = x - startX;
@@ -334,11 +334,28 @@ function buildPlannerItemsForMonth(year, month, incomeSources, bills, debts, goa
   goals.filter((g) => g.monthlyContribution > 0).forEach((g) => {
     autoItems.push({ id: `planner-savings-${g.id}`, amount: g.monthlyContribution, type: "expense", paid: false });
   });
-  // Subscriptions
+  // Subscriptions — frequency-aware (yearly/quarterly only in due months)
   if (subscriptions) {
     subscriptions.filter(s => s.active).forEach((s) => {
-      const monthlyAmt = s.frequency === "yearly" ? s.amount / 12 : s.frequency === "quarterly" ? s.amount / 3 : s.frequency === "weekly" ? s.amount * 4.33 : s.amount;
-      autoItems.push({ id: `planner-sub-${s.id}`, amount: Math.round(monthlyAmt * 100) / 100, type: "expense", paid: false });
+      let showThisMonth = true;
+      let amount = s.amount;
+      if (s.nextBillDate) {
+        const nd = new Date(s.nextBillDate + 'T12:00:00');
+        if (s.frequency === "yearly") {
+          showThisMonth = (month === nd.getMonth());
+        } else if (s.frequency === "quarterly") {
+          const monthDiff = (year - nd.getFullYear()) * 12 + (month - nd.getMonth());
+          showThisMonth = (monthDiff % 3 === 0);
+        } else if (s.frequency === "weekly") {
+          amount = Math.round(s.amount * 4.33 * 100) / 100;
+        }
+      } else {
+        if (s.frequency === "yearly" || s.frequency === "quarterly") showThisMonth = false;
+        else if (s.frequency === "weekly") amount = Math.round(s.amount * 4.33 * 100) / 100;
+      }
+      if (showThisMonth) {
+        autoItems.push({ id: `planner-sub-${s.id}`, amount: Math.round(amount * 100) / 100, type: "expense", paid: false });
+      }
     });
   }
 
@@ -757,131 +774,103 @@ export default function MaverickFinance() {
   const [plannerOrderByMonth, setPlannerOrderByMonth] = useState(init("plannerOrderByMonth", {}));
   const [draggedItemId, setDraggedItemId] = useState(null);
   const [dragOverItemId, setDragOverItemId] = useState(null);
-  const touchDragRef = useRef({ active: false, startY: 0, startX: 0, itemId: null, ghost: null, scrollInterval: null });
+  const touchDragRef = useRef({ active: false, itemId: null, ghost: null, scrollInterval: null, _lastOverId: null });
+  // Ref to always hold the latest reorderPlannerItem function
+  const reorderPlannerItemRef = useRef(null);
 
-  // iOS-compatible touch drag — uses native non-passive listeners for reliable preventDefault
+  // Touch drag setup — attaches touch handlers to drag handles (uses ref to avoid stale closures)
   const setupTouchDrag = useCallback((el, itemId) => {
-    if (!el) return;
-    // Avoid double-binding
+    // Prevent duplicate listeners by tagging the element
     if (el._touchDragBound) return;
     el._touchDragBound = true;
 
-    const handleTouchStart = (e) => {
-      const t = e.touches[0];
-      const row = el.closest('[data-planner-id]');
+    let startY = 0;
+    let startX = 0;
+    let ghost = null;
+    let scrollInterval = null;
+    let lastOverId = null;
+
+    const onTouchStart = (e) => {
+      const touch = e.touches[0];
+      startX = touch.clientX;
+      startY = touch.clientY;
+
+      // Create ghost element
+      const row = el.closest("[data-planner-id]");
       if (!row) return;
 
-      // Create ghost element for visual feedback
-      const rect = row.getBoundingClientRect();
-      const ghost = row.cloneNode(true);
-      ghost.style.position = 'fixed';
-      ghost.style.left = rect.left + 'px';
-      ghost.style.top = rect.top + 'px';
-      ghost.style.width = rect.width + 'px';
-      ghost.style.height = rect.height + 'px';
-      ghost.style.zIndex = '9999';
-      ghost.style.opacity = '0.85';
-      ghost.style.pointerEvents = 'none';
-      ghost.style.boxShadow = '0 8px 25px rgba(0,0,0,0.2)';
-      ghost.style.borderRadius = '12px';
-      ghost.style.transform = 'scale(1.02)';
-      ghost.style.transition = 'none';
+      e.preventDefault();
+      ghost = row.cloneNode(true);
+      ghost.style.cssText = `position:fixed;top:${touch.clientY - 20}px;left:8px;right:8px;width:${row.offsetWidth}px;opacity:0.85;z-index:9999;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,0.15);border-radius:12px;transform:scale(1.02);`;
       document.body.appendChild(ghost);
 
-      touchDragRef.current = {
-        active: true,
-        startY: t.clientY,
-        startX: t.clientX,
-        itemId: itemId,
-        ghost: ghost,
-        origTop: rect.top,
-        offsetY: t.clientY - rect.top,
-        scrollInterval: null,
-      };
+      touchDragRef.current.active = true;
+      touchDragRef.current.itemId = itemId;
+      touchDragRef.current.ghost = ghost;
       setDraggedItemId(itemId);
-      e.preventDefault();
     };
 
-    const handleTouchMove = (e) => {
+    const onTouchMove = (e) => {
       if (!touchDragRef.current.active) return;
-      const t = e.touches[0];
-      const ref = touchDragRef.current;
+      const touch = e.touches[0];
+      e.preventDefault();
 
       // Move ghost
-      if (ref.ghost) {
-        ref.ghost.style.top = (t.clientY - ref.offsetY) + 'px';
-      }
+      if (ghost) ghost.style.top = `${touch.clientY - 20}px`;
 
       // Auto-scroll near edges
-      const scrollContainer = el.closest('.overflow-y-auto, .overflow-auto, [style*="overflow"]') || window;
-      const edgeZone = 50;
-      const viewH = window.innerHeight;
-      if (ref.scrollInterval) { clearInterval(ref.scrollInterval); ref.scrollInterval = null; }
-      if (t.clientY < edgeZone) {
-        ref.scrollInterval = setInterval(() => {
-          if (scrollContainer === window) window.scrollBy(0, -8);
-          else scrollContainer.scrollTop -= 8;
-        }, 16);
-      } else if (t.clientY > viewH - edgeZone) {
-        ref.scrollInterval = setInterval(() => {
-          if (scrollContainer === window) window.scrollBy(0, 8);
-          else scrollContainer.scrollTop += 8;
-        }, 16);
+      clearInterval(scrollInterval);
+      const edgeZone = 60;
+      if (touch.clientY < edgeZone) {
+        scrollInterval = setInterval(() => window.scrollBy(0, -6), 16);
+        touchDragRef.current.scrollInterval = scrollInterval;
+      } else if (touch.clientY > window.innerHeight - edgeZone) {
+        scrollInterval = setInterval(() => window.scrollBy(0, 6), 16);
+        touchDragRef.current.scrollInterval = scrollInterval;
       }
 
-      // Find element under finger (hide ghost temporarily)
-      if (ref.ghost) ref.ghost.style.display = 'none';
-      const elUnder = document.elementFromPoint(t.clientX, t.clientY);
-      if (ref.ghost) ref.ghost.style.display = '';
+      // Find element under touch
+      if (ghost) ghost.style.display = "none";
+      const elemBelow = document.elementFromPoint(touch.clientX, touch.clientY);
+      if (ghost) ghost.style.display = "";
 
-      if (elUnder) {
-        const row = elUnder.closest('[data-planner-id]');
-        if (row) {
-          const overId = row.getAttribute('data-planner-id');
-          if (overId !== touchDragRef.current._lastOverId) {
-            touchDragRef.current._lastOverId = overId;
+      if (elemBelow) {
+        const targetRow = elemBelow.closest("[data-planner-id]");
+        if (targetRow) {
+          const overId = targetRow.getAttribute("data-planner-id");
+          if (overId !== lastOverId) {
+            lastOverId = overId;
             setDragOverItemId(overId);
           }
         }
       }
-      e.preventDefault();
     };
 
-    const handleTouchEnd = (e) => {
-      if (!touchDragRef.current.active) return;
-      const fromId = touchDragRef.current.itemId;
-      const toId = touchDragRef.current._lastOverId;
+    const onTouchEnd = () => {
+      clearInterval(scrollInterval);
+      touchDragRef.current.scrollInterval = null;
 
-      // Cleanup ghost
-      if (touchDragRef.current.ghost) {
-        touchDragRef.current.ghost.remove();
-      }
-      if (touchDragRef.current.scrollInterval) {
-        clearInterval(touchDragRef.current.scrollInterval);
-      }
+      if (ghost) { ghost.remove(); ghost = null; }
 
-      touchDragRef.current = { active: false, startY: 0, startX: 0, itemId: null, ghost: null, scrollInterval: null };
+      const fromId = itemId;
+      const toId = lastOverId;
+      lastOverId = null;
 
-      if (fromId && toId && fromId !== toId) {
-        reorderPlannerItem(fromId, toId);
-      } else {
-        setDraggedItemId(null);
-        setDragOverItemId(null);
+      touchDragRef.current.active = false;
+      touchDragRef.current.itemId = null;
+      touchDragRef.current.ghost = null;
+
+      setDraggedItemId(null);
+      setDragOverItemId(null);
+
+      if (fromId && toId && fromId !== toId && reorderPlannerItemRef.current) {
+        reorderPlannerItemRef.current(fromId, toId);
       }
     };
 
-    // Use non-passive listeners — critical for iOS preventDefault to work
-    el.addEventListener('touchstart', handleTouchStart, { passive: false });
-    el.addEventListener('touchmove', handleTouchMove, { passive: false });
-    el.addEventListener('touchend', handleTouchEnd, { passive: false });
-
-    // Store cleanup refs
-    el._touchDragCleanup = () => {
-      el.removeEventListener('touchstart', handleTouchStart);
-      el.removeEventListener('touchmove', handleTouchMove);
-      el.removeEventListener('touchend', handleTouchEnd);
-      el._touchDragBound = false;
-    };
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
   }, []);
 
   // State for donut chart category drill-down
@@ -1627,12 +1616,45 @@ The user's current financial data:
   }, [maverickMessages, maverickLoading]);
 
   // Prevent iPad/iOS scroll-jump when focusing inputs (especially with Bluetooth keyboard)
-  // Strategy: capture scroll position BEFORE browser scrolls (capture phase),
-  // then restore it if the browser jumped too far.
-  const iosScrollLockRef = useRef({ y: 0, locked: false });
+  // Strategy: lock the body with position:fixed while any input is focused,
+  // then restore the exact scroll position on blur. This physically prevents
+  // the browser from scrolling because the body is taken out of flow.
   useEffect(() => {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     if (!isIOS) return;
+
+    let savedScrollY = 0;
+    let isLocked = false;
+
+    const lockScroll = () => {
+      if (isLocked) return;
+      savedScrollY = window.scrollY;
+      isLocked = true;
+      const body = document.body;
+      body.style.position = 'fixed';
+      body.style.top = `-${savedScrollY}px`;
+      body.style.left = '0';
+      body.style.right = '0';
+      body.style.overflow = 'hidden';
+    };
+
+    const unlockScroll = () => {
+      if (!isLocked) return;
+      isLocked = false;
+      const body = document.body;
+      body.style.position = '';
+      body.style.top = '';
+      body.style.left = '';
+      body.style.right = '';
+      body.style.overflow = '';
+      window.scrollTo({ top: savedScrollY, behavior: 'instant' });
+    };
+
+    const isInputElement = (el) => {
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+    };
 
     // Remove autoFocus on iOS — it causes scroll jumps on component mount
     const removeAutoFocus = () => {
@@ -1642,56 +1664,48 @@ The user's current financial data:
     const observer = new MutationObserver(removeAutoFocus);
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['autofocus'] });
 
-    // Capture scroll position BEFORE focus causes a scroll (capture phase fires first)
-    const captureHandler = (e) => {
-      const tag = e.target?.tagName;
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
-        iosScrollLockRef.current = { y: window.scrollY, locked: true };
+    // On focus: lock the body
+    const handleFocusIn = (e) => {
+      if (isInputElement(e.target)) {
+        lockScroll();
       }
     };
 
-    // After focus, check if browser jumped and restore
-    const bubbleHandler = (e) => {
-      const tag = e.target?.tagName;
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
-        const saved = iosScrollLockRef.current;
-        if (!saved.locked) return;
-        // Check at multiple intervals since iOS scrolls asynchronously
-        const restore = () => {
-          if (Math.abs(window.scrollY - saved.y) > 80) {
-            window.scrollTo({ top: saved.y, behavior: 'instant' });
-          }
-        };
-        restore();
-        setTimeout(restore, 16);
-        setTimeout(restore, 50);
-        setTimeout(restore, 100);
-        setTimeout(() => { iosScrollLockRef.current.locked = false; }, 150);
-      }
-    };
-
-    // Also catch scroll events during focus to prevent mid-scroll jumps
-    let scrollRafId = null;
-    const scrollHandler = () => {
-      if (!iosScrollLockRef.current.locked) return;
-      if (scrollRafId) cancelAnimationFrame(scrollRafId);
-      scrollRafId = requestAnimationFrame(() => {
-        const saved = iosScrollLockRef.current;
-        if (saved.locked && Math.abs(window.scrollY - saved.y) > 80) {
-          window.scrollTo({ top: saved.y, behavior: 'instant' });
+    // On blur: unlock the body — but only if the new focus target is NOT another input
+    // (handles tabbing between fields without flicker)
+    const handleFocusOut = (e) => {
+      if (!isInputElement(e.target)) return;
+      // Use requestAnimationFrame to check what gets focus next
+      requestAnimationFrame(() => {
+        if (!isInputElement(document.activeElement)) {
+          unlockScroll();
         }
       });
     };
 
-    document.addEventListener('focusin', captureHandler, { capture: true, passive: true });
-    document.addEventListener('focusin', bubbleHandler, { capture: false, passive: true });
-    window.addEventListener('scroll', scrollHandler, { passive: true });
+    // Safety: also unlock on touch outside inputs (catches edge cases)
+    const handleTouchStart = (e) => {
+      if (isLocked && !isInputElement(e.target) && !e.target?.closest('input, select, textarea')) {
+        // Delay slightly to let blur fire first
+        setTimeout(() => {
+          if (!isInputElement(document.activeElement)) {
+            unlockScroll();
+          }
+        }, 100);
+      }
+    };
+
+    document.addEventListener('focusin', handleFocusIn, true);
+    document.addEventListener('focusout', handleFocusOut, true);
+    document.addEventListener('touchstart', handleTouchStart, { passive: true });
 
     return () => {
       observer.disconnect();
-      document.removeEventListener('focusin', captureHandler, { capture: true });
-      document.removeEventListener('focusin', bubbleHandler, { capture: false });
-      window.removeEventListener('scroll', scrollHandler);
+      document.removeEventListener('focusin', handleFocusIn, true);
+      document.removeEventListener('focusout', handleFocusOut, true);
+      document.removeEventListener('touchstart', handleTouchStart);
+      // Ensure unlock on cleanup
+      if (isLocked) unlockScroll();
     };
   }, []);
 
@@ -2513,15 +2527,46 @@ The user's current financial data:
     const daysInMo = new Date(viewYear, viewMonth + 1, 0).getDate();
     subscriptions.filter(s => s.active).forEach((s) => {
       const pid = `planner-sub-${s.id}`;
-      const monthlyAmt = s.frequency === "yearly" ? s.amount / 12 : s.frequency === "quarterly" ? s.amount / 3 : s.frequency === "weekly" ? s.amount * 4.33 : s.amount;
+      let showThisMonth = true;
+      let amount = s.amount;
+      let dateLabel = "Monthly";
       let dayStr = "01";
+
       if (s.nextBillDate) {
-        const nd = new Date(s.nextBillDate);
-        if (nd.getMonth() === viewMonth && nd.getFullYear() === viewYear) dayStr = String(nd.getDate()).padStart(2, "0");
-        else dayStr = String(Math.min(nd.getDate() || 1, daysInMo)).padStart(2, "0");
+        const nd = new Date(s.nextBillDate + 'T12:00:00');
+        const ndMonth = nd.getMonth();
+        const ndYear = nd.getFullYear();
+        dayStr = String(Math.min(nd.getDate() || 1, daysInMo)).padStart(2, "0");
+        if (ndMonth === viewMonth && ndYear === viewYear) dayStr = String(nd.getDate()).padStart(2, "0");
+
+        if (s.frequency === "yearly") {
+          // Only show in the month it's actually due (same month of year as nextBillDate)
+          showThisMonth = (viewMonth === ndMonth);
+          dateLabel = `Due ${parseInt(dayStr)} (Yearly)`;
+        } else if (s.frequency === "quarterly") {
+          // Show every 3 months from the nextBillDate month
+          const monthDiff = (viewYear - ndYear) * 12 + (viewMonth - ndMonth);
+          showThisMonth = (monthDiff % 3 === 0);
+          dateLabel = `Due ${parseInt(dayStr)} (Quarterly)`;
+        } else if (s.frequency === "weekly") {
+          amount = Math.round(s.amount * 4.33 * 100) / 100;
+          dateLabel = `~${parseInt(dayStr)}th (Weekly)`;
+        } else {
+          dateLabel = `Due ${parseInt(dayStr)}`;
+        }
+      } else {
+        // No nextBillDate — only show monthly/weekly, skip yearly/quarterly without a date
+        if (s.frequency === "yearly" || s.frequency === "quarterly") {
+          showThisMonth = false;
+        } else if (s.frequency === "weekly") {
+          amount = Math.round(s.amount * 4.33 * 100) / 100;
+        }
       }
-      auto.push({ id: pid, label: s.name, amount: Math.round(monthlyAmt * 100) / 100, type: "expense", paid: !!plannerPaidMap[pid], auto: true, source: "subscription",
-        dateSortKey: `${viewYear}-${mm}-${dayStr}`, dateLabel: s.nextBillDate ? `Due ${parseInt(dayStr)}` : "Monthly" });
+
+      if (showThisMonth) {
+        auto.push({ id: pid, label: s.name, amount: Math.round(amount * 100) / 100, type: "expense", paid: !!plannerPaidMap[pid], auto: true, source: "subscription",
+          dateSortKey: `${viewYear}-${mm}-${dayStr}`, dateLabel });
+      }
     });
     // Filter out dismissed auto items
     const filtered = auto.filter((item) => !plannerDismissed.includes(item.id));
@@ -2604,6 +2649,7 @@ The user's current financial data:
     setDraggedItemId(null);
     setDragOverItemId(null);
   };
+  reorderPlannerItemRef.current = reorderPlannerItem;
 
   // ── Planner one-off amount override ──
   const savePlannerAmountOverride = (id) => {
@@ -2629,6 +2675,43 @@ The user's current financial data:
     const overrides = { ...(plannerAmountOverridesByMonth[key] || {}) };
     delete overrides[id];
     setPlannerAmountOverridesByMonth({ ...plannerAmountOverridesByMonth, [key]: overrides });
+  };
+
+  // ── Clear/delete a month's data ──
+  const clearMonthData = (key) => {
+    if (!window.confirm(`Are you sure you want to clear all data for this month? This will remove expenses, planner items, paid status, notes, and overrides for this month. This cannot be undone.`)) return;
+    // Clear expenses
+    const newExp = { ...expensesByMonth };
+    delete newExp[key];
+    setExpensesByMonth(newExp);
+    // Clear planner manual items
+    const newManual = { ...plannerManualByMonth };
+    delete newManual[key];
+    setPlannerManualByMonth(newManual);
+    // Clear planner dismissed
+    const newDismissed = { ...plannerDismissedByMonth };
+    delete newDismissed[key];
+    setPlannerDismissedByMonth(newDismissed);
+    // Clear planner paid
+    const newPaid = { ...plannerPaidByMonth };
+    delete newPaid[key];
+    setPlannerPaidByMonth(newPaid);
+    // Clear planner notes
+    const newNotes = { ...plannerNotesByMonth };
+    delete newNotes[key];
+    setPlannerNotesByMonth(newNotes);
+    // Clear planner order
+    const newOrder = { ...plannerOrderByMonth };
+    delete newOrder[key];
+    setPlannerOrderByMonth(newOrder);
+    // Clear planner amount overrides
+    const newOverrides = { ...plannerAmountOverridesByMonth };
+    delete newOverrides[key];
+    setPlannerAmountOverridesByMonth(newOverrides);
+    // Clear rollover override
+    const newRollover = { ...rolloverOverrides };
+    delete newRollover[key];
+    setRolloverOverrides(newRollover);
   };
 
   // ── Net Worth CRUD ──
@@ -3043,20 +3126,9 @@ The user's current financial data:
         @media (max-width: 640px) {
           .mobile-px { padding-left: 12px !important; padding-right: 12px !important; }
         }
-        /* Prevent iPad/iOS scroll jump when focusing inputs */
-        input, select, textarea {
-          scroll-margin-top: 100px;
-          scroll-margin-bottom: 40px;
-        }
+        /* iOS scroll-jump prevention — works with position:fixed body lock */
         @supports (-webkit-touch-callout: none) {
-          /* iOS-specific: prevent browser from auto-scrolling focused elements */
-          input:focus, select:focus, textarea:focus {
-            scroll-margin-top: 100px;
-            scroll-margin-bottom: 40px;
-          }
-          /* Prevent iOS keyboard from pushing viewport */
-          html { overflow: auto; height: 100%; }
-          body { overflow: auto; height: 100%; overscroll-behavior-y: none; }
+          html, body { overscroll-behavior-y: none; }
         }
       `}</style>
       {/* Theme special effects */}
@@ -4817,6 +4889,14 @@ The user's current financial data:
               </button>
             </div>
 
+            {/* Clear month button — only for past months */}
+            {(viewYear < today.getFullYear() || (viewYear === today.getFullYear() && viewMonth < today.getMonth())) && (
+              <button onClick={() => clearMonthData(vKey)}
+                className={`w-full flex items-center justify-center gap-1.5 text-xs font-medium py-2 rounded-xl border transition ${dm('border-gray-200 text-gray-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600', 'border-slate-700 text-slate-400 hover:bg-red-900/20 hover:border-red-800 hover:text-red-400')}`}>
+                <Trash2 size={13} /> Clear This Month's Data
+              </button>
+            )}
+
             {/* Add item form */}
             {plannerDraft && (
               <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className={`${plannerDraft.type === "income" ? "border-emerald-200 bg-emerald-50/30" : "border-rose-200 bg-rose-50/30"}`}>
@@ -4865,6 +4945,7 @@ The user's current financial data:
                         key={item.id}
                         isOpen={swipedItemId === item.id}
                         onToggle={(open) => setSwipedItemId(open ? item.id : null)}
+                        disabled={editingAmountId === item.id}
                         actions={[
                           {
                             label: item.paid ? "Unpaid" : "Paid",
@@ -4996,8 +5077,8 @@ The user's current financial data:
                                 className={`w-20 px-2 py-1 border rounded text-xs text-right font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')}`}
                                 autoFocus
                               />
-                              <button onClick={() => savePlannerAmountOverride(item.id)} className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600"><Check size={12} /></button>
-                              <button onClick={() => setEditingAmountId(null)} className="p-1 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"><X size={12} /></button>
+                              <button onClick={() => savePlannerAmountOverride(item.id)} className="p-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 min-w-[40px] min-h-[40px] flex items-center justify-center"><Check size={18} /></button>
+                              <button onClick={() => setEditingAmountId(null)} className="p-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 min-w-[36px] min-h-[36px] flex items-center justify-center"><X size={16} /></button>
                             </div>
                           ) : (
                             <div className="flex items-center gap-1 flex-shrink-0">
