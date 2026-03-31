@@ -780,20 +780,20 @@ export default function MaverickFinance() {
 
   // Touch drag setup — attaches touch handlers to drag handles (uses ref to avoid stale closures)
   const setupTouchDrag = useCallback((el, itemId) => {
-    // Prevent duplicate listeners by tagging the element
+    // Always update the stored itemId so handlers use the correct one
+    el._touchDragItemId = itemId;
+
+    // Only attach listeners once per DOM element
     if (el._touchDragBound) return;
     el._touchDragBound = true;
 
-    let startY = 0;
-    let startX = 0;
     let ghost = null;
     let scrollInterval = null;
     let lastOverId = null;
 
     const onTouchStart = (e) => {
+      const currentItemId = el._touchDragItemId;
       const touch = e.touches[0];
-      startX = touch.clientX;
-      startY = touch.clientY;
 
       // Create ghost element
       const row = el.closest("[data-planner-id]");
@@ -805,9 +805,9 @@ export default function MaverickFinance() {
       document.body.appendChild(ghost);
 
       touchDragRef.current.active = true;
-      touchDragRef.current.itemId = itemId;
+      touchDragRef.current.itemId = currentItemId;
       touchDragRef.current.ghost = ghost;
-      setDraggedItemId(itemId);
+      setDraggedItemId(currentItemId);
     };
 
     const onTouchMove = (e) => {
@@ -852,7 +852,7 @@ export default function MaverickFinance() {
 
       if (ghost) { ghost.remove(); ghost = null; }
 
-      const fromId = itemId;
+      const fromId = el._touchDragItemId;
       const toId = lastOverId;
       lastOverId = null;
 
@@ -2570,8 +2570,15 @@ The user's current financial data:
     });
     // Filter out dismissed auto items
     const filtered = auto.filter((item) => !plannerDismissed.includes(item.id));
-    // Add manual items
-    const manual = plannerManualItems.map((m) => ({ ...m, auto: false, source: "manual" }));
+    // Add manual items — include dateSortKey from dueDay if set
+    const manual = plannerManualItems.map((m) => {
+      const dayStr = m.dueDay ? String(m.dueDay).padStart(2, "0") : null;
+      return {
+        ...m, auto: false, source: "manual",
+        dateSortKey: dayStr ? `${viewYear}-${mm}-${dayStr}` : null,
+        dateLabel: dayStr ? `Day ${m.dueDay}` : null,
+      };
+    });
     // Add rollover line item if enabled and > 0
     const allItems = [...filtered, ...manual];
     if (rolloverEnabled && rolloverAmount > 0) {
@@ -2600,6 +2607,9 @@ The user's current financial data:
   const addPlannerItem = (item) => {
     const key = vKey;
     const newItem = { ...item, id: uid() };
+    // Store dueDay if provided (for sorting); clean up draft field
+    if (newItem.dueDay) newItem.dueDay = parseInt(newItem.dueDay);
+    else delete newItem.dueDay;
     setPlannerManualByMonth({ ...plannerManualByMonth, [key]: [...(plannerManualByMonth[key] || []), newItem] });
     setPlannerDraft(null);
   };
@@ -4879,11 +4889,11 @@ The user's current financial data:
 
             {/* Add item buttons */}
             <div className="flex gap-2">
-              <button onClick={() => setPlannerDraft({ label: "", amount: "", type: "income" })}
+              <button onClick={() => setPlannerDraft({ label: "", amount: "", type: "income", dueDay: "" })}
                 className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-600 text-white text-sm font-medium py-2.5 rounded-xl hover:bg-emerald-700 transition">
                 <Plus size={16} /> Add Income
               </button>
-              <button onClick={() => setPlannerDraft({ label: "", amount: "", type: "expense" })}
+              <button onClick={() => setPlannerDraft({ label: "", amount: "", type: "expense", dueDay: "" })}
                 className="flex-1 flex items-center justify-center gap-1.5 bg-rose-500 text-white text-sm font-medium py-2.5 rounded-xl hover:bg-rose-600 transition">
                 <Plus size={16} /> Add Expense
               </button>
@@ -4900,11 +4910,11 @@ The user's current financial data:
             {/* Add item form */}
             {plannerDraft && (
               <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className={`${plannerDraft.type === "income" ? "border-emerald-200 bg-emerald-50/30" : "border-rose-200 bg-rose-50/30"}`}>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-2">
                   <input placeholder={plannerDraft.type === "income" ? "Income label" : "Expense label"}
                     value={plannerDraft.label} onChange={(e) => setPlannerDraft({ ...plannerDraft, label: e.target.value })}
-                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" autoFocus />
-                  <div className="relative w-32">
+                    className="flex-1 min-w-[120px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" autoFocus />
+                  <div className="relative w-28">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                     <input type="number" placeholder="Amount" value={plannerDraft.amount}
                       onChange={(e) => setPlannerDraft({ ...plannerDraft, amount: e.target.value })}
@@ -4914,6 +4924,14 @@ The user's current financial data:
                       }}
                       className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                   </div>
+                  <select value={plannerDraft.dueDay || ""}
+                    onChange={(e) => setPlannerDraft({ ...plannerDraft, dueDay: e.target.value ? parseInt(e.target.value) : "" })}
+                    className={`w-24 px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${!plannerDraft.dueDay ? 'text-gray-400' : 'text-gray-700'}`}>
+                    <option value="">Day</option>
+                    {Array.from({ length: new Date(viewYear, viewMonth + 1, 0).getDate() }, (_, i) => i + 1).map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
                   <button onClick={() => { if (plannerDraft.label && plannerDraft.amount) addPlannerItem({ ...plannerDraft, amount: +plannerDraft.amount, paid: false }); }}
                     className={`px-4 text-white rounded-lg text-sm font-medium transition flex items-center gap-1 ${plannerDraft.type === "income" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-rose-500 hover:bg-rose-600"}`}>
                     <Check size={14} />
