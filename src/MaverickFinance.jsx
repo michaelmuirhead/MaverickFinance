@@ -2445,6 +2445,7 @@ The user's current financial data:
 
   const plannerItems = useMemo(() => {
     const auto = [];
+    const mm = String(viewMonth + 1).padStart(2, "0");
     // Income: from monthPaychecks (generated + extras)
     monthPaychecks.forEach((p) => {
       const pid = `planner-income-${p.id}`;
@@ -2453,7 +2454,6 @@ The user's current financial data:
         dateSortKey: `${viewYear}-${mm}-${incDay}`, dateLabel: p.date.toLocaleDateString("en-US", { month: "short", day: "numeric" }) });
     });
     // Recurring bills
-    const mm = String(viewMonth + 1).padStart(2, "0");
     bills.forEach((b) => {
       const pid = `planner-bill-${b.id}`;
       const dayStr = String(Math.min(b.dueDay, new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0");
