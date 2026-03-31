@@ -46,6 +46,15 @@ const monthKey = (y, m) => `${y}-${String(m + 1).padStart(2, "0")}`;
 const monthLabel = (y, m) => new Date(y, m, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 const daysBetween = (a, b) => Math.round((b - a) / 86400000);
 
+// ─── Shared financial helpers ─────────────────────────────────────────────
+const getDebtPayment = (d) => (+d.minPayment || 0) + (+d.extraPayment || 0);
+const isCreditDebt = (d) => d.debtType === 'credit_card' || d.debtType === 'line_of_credit';
+const normalizeToMonthly = (amount, frequency) =>
+  frequency === "yearly" ? amount / 12
+  : frequency === "quarterly" ? amount / 3
+  : frequency === "weekly" ? amount * 4.33
+  : amount;
+
 const PAY_FREQUENCIES = [
   { label: "Weekly", value: "weekly", days: 7 },
   { label: "Biweekly", value: "biweekly", days: 14 },
@@ -188,6 +197,16 @@ function ProgressBar({ value, max, color = "#6366f1", height = 8 }) {
   );
 }
 
+function CurrencyInput({ value, onChange, placeholder = "0.00", darkMode = false, className, ...rest }) {
+  const inputClass = className || `w-full pl-7 pr-3 py-2 border rounded-lg text-sm ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'border-gray-200 bg-white'} focus:outline-none focus:ring-2 focus:ring-indigo-500`;
+  return (
+    <div className="relative">
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+      <input type="number" placeholder={placeholder} value={value} onChange={onChange} className={inputClass} {...rest} />
+    </div>
+  );
+}
+
 function EmptyState({ icon: Icon, message }) {
   return (
     <div className="flex flex-col items-center justify-center py-12 text-gray-400">
@@ -303,7 +322,7 @@ function buildPlannerItemsForMonth(year, month, incomeSources, bills, debts, goa
   const daysInMo = new Date(year, month + 1, 0).getDate();
   debts.filter((d) => (d.minPayment || 0) + (d.extraPayment || 0) > 0).forEach((d) => {
     const freq = d.frequency || "monthly";
-    const paymentAmt = d.minPayment + d.extraPayment;
+    const paymentAmt = getDebtPayment(d);
     const dueDay = Math.min(d.dueDay || 1, daysInMo);
 
     if (freq === "monthly") {
@@ -453,6 +472,39 @@ if (savedData && !savedData._migrationV2) {
 
   savedData._migrationV1 = true;
   savedData._migrationV2 = true;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(savedData)); } catch {}
+}
+
+// --- V3: Sanitize numeric fields on debts and goals ---
+if (savedData && !savedData._migrationV3) {
+  if (Array.isArray(savedData.debts)) {
+    savedData.debts = savedData.debts.map(d => ({
+      ...d,
+      balance: +(d.balance) || 0,
+      rate: +(d.rate) || 0,
+      minPayment: +(d.minPayment) || 0,
+      extraPayment: +(d.extraPayment) || 0,
+      dueDay: +(d.dueDay) || 1,
+      creditLimit: +(d.creditLimit) || 0,
+      frequency: d.frequency || "monthly",
+    }));
+  }
+  if (Array.isArray(savedData.goals)) {
+    savedData.goals = savedData.goals.map(g => ({
+      ...g,
+      target: +(g.target) || 0,
+      saved: +(g.saved) || 0,
+      monthlyContribution: +(g.monthlyContribution) || 0,
+    }));
+  }
+  if (Array.isArray(savedData.bills)) {
+    savedData.bills = savedData.bills.map(b => ({
+      ...b,
+      amount: +(b.amount) || 0,
+      dueDay: +(b.dueDay) || 1,
+    }));
+  }
+  savedData._migrationV3 = true;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(savedData)); } catch {}
 }
 
@@ -779,98 +831,98 @@ export default function MaverickFinance() {
   const reorderPlannerItemRef = useRef(null);
 
   // Touch drag setup — attaches touch handlers to drag handles (uses ref to avoid stale closures)
-  const setupTouchDrag = useCallback((el, itemId) => {
-    // Always update the stored itemId so handlers use the correct one
-    el._touchDragItemId = itemId;
+  // Touch drag handlers — inline React handlers (works reliably on iOS Safari)
+  const handleTouchDragStart = useCallback((e, itemId) => {
+    const touch = e.touches[0];
+    const row = e.currentTarget.closest("[data-planner-id]");
+    if (!row) return;
 
-    // Only attach listeners once per DOM element
-    if (el._touchDragBound) return;
-    el._touchDragBound = true;
+    // Prevent iOS default scroll/selection behavior
+    e.preventDefault();
+    e.stopPropagation();
 
-    let ghost = null;
-    let scrollInterval = null;
-    let lastOverId = null;
+    const ghost = row.cloneNode(true);
+    ghost.setAttribute("id", "touch-drag-ghost");
+    ghost.style.cssText = `position:fixed;top:${touch.clientY - 24}px;left:8px;right:8px;width:${row.offsetWidth}px;opacity:0.9;z-index:9999;pointer-events:none;box-shadow:0 10px 30px rgba(0,0,0,0.2);border-radius:12px;transform:scale(1.03);transition:none;`;
+    document.body.appendChild(ghost);
 
-    const onTouchStart = (e) => {
-      const currentItemId = el._touchDragItemId;
-      const touch = e.touches[0];
+    // Dim the original row
+    row.style.opacity = "0.3";
 
-      // Create ghost element
-      const row = el.closest("[data-planner-id]");
-      if (!row) return;
+    touchDragRef.current = { active: true, itemId, ghost, sourceRow: row, scrollInterval: null, _lastOverId: null };
+    setDraggedItemId(itemId);
+  }, []);
 
-      e.preventDefault();
-      ghost = row.cloneNode(true);
-      ghost.style.cssText = `position:fixed;top:${touch.clientY - 20}px;left:8px;right:8px;width:${row.offsetWidth}px;opacity:0.85;z-index:9999;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,0.15);border-radius:12px;transform:scale(1.02);`;
-      document.body.appendChild(ghost);
+  const handleTouchDragMove = useCallback((e) => {
+    const td = touchDragRef.current;
+    if (!td.active) return;
 
-      touchDragRef.current.active = true;
-      touchDragRef.current.itemId = currentItemId;
-      touchDragRef.current.ghost = ghost;
-      setDraggedItemId(currentItemId);
-    };
+    e.preventDefault();
+    e.stopPropagation();
 
-    const onTouchMove = (e) => {
-      if (!touchDragRef.current.active) return;
-      const touch = e.touches[0];
-      e.preventDefault();
+    const touch = e.touches[0];
+    const ghost = td.ghost;
 
-      // Move ghost
-      if (ghost) ghost.style.top = `${touch.clientY - 20}px`;
+    // Move ghost element to follow finger
+    if (ghost) ghost.style.top = `${touch.clientY - 24}px`;
 
-      // Auto-scroll near edges
-      clearInterval(scrollInterval);
-      const edgeZone = 60;
-      if (touch.clientY < edgeZone) {
-        scrollInterval = setInterval(() => window.scrollBy(0, -6), 16);
-        touchDragRef.current.scrollInterval = scrollInterval;
-      } else if (touch.clientY > window.innerHeight - edgeZone) {
-        scrollInterval = setInterval(() => window.scrollBy(0, 6), 16);
-        touchDragRef.current.scrollInterval = scrollInterval;
-      }
+    // Auto-scroll when near viewport edges
+    clearInterval(td.scrollInterval);
+    if (touch.clientY < 80) {
+      td.scrollInterval = setInterval(() => window.scrollBy(0, -8), 16);
+    } else if (touch.clientY > window.innerHeight - 80) {
+      td.scrollInterval = setInterval(() => window.scrollBy(0, 8), 16);
+    } else {
+      td.scrollInterval = null;
+    }
 
-      // Find element under touch
-      if (ghost) ghost.style.display = "none";
-      const elemBelow = document.elementFromPoint(touch.clientX, touch.clientY);
-      if (ghost) ghost.style.display = "";
+    // Find which planner row is under the touch point
+    if (ghost) ghost.style.display = "none";
+    const elemBelow = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (ghost) ghost.style.display = "";
 
-      if (elemBelow) {
-        const targetRow = elemBelow.closest("[data-planner-id]");
-        if (targetRow) {
-          const overId = targetRow.getAttribute("data-planner-id");
-          if (overId !== lastOverId) {
-            lastOverId = overId;
-            setDragOverItemId(overId);
-          }
+    if (elemBelow) {
+      const targetRow = elemBelow.closest("[data-planner-id]");
+      if (targetRow) {
+        const overId = targetRow.getAttribute("data-planner-id");
+        if (overId !== td._lastOverId) {
+          // Remove highlight from previous target
+          if (td._lastOverEl) td._lastOverEl.style.outline = "";
+          td._lastOverId = overId;
+          td._lastOverEl = targetRow;
+          // Add highlight to current target
+          if (overId !== td.itemId) targetRow.style.outline = "2px solid #6366f1";
+          setDragOverItemId(overId);
         }
       }
-    };
+    }
+  }, []);
 
-    const onTouchEnd = () => {
-      clearInterval(scrollInterval);
-      touchDragRef.current.scrollInterval = null;
+  const handleTouchDragEnd = useCallback((e) => {
+    const td = touchDragRef.current;
+    if (!td.active) return;
 
-      if (ghost) { ghost.remove(); ghost = null; }
+    e.preventDefault();
 
-      const fromId = el._touchDragItemId;
-      const toId = lastOverId;
-      lastOverId = null;
+    clearInterval(td.scrollInterval);
 
-      touchDragRef.current.active = false;
-      touchDragRef.current.itemId = null;
-      touchDragRef.current.ghost = null;
+    // Clean up ghost
+    if (td.ghost) td.ghost.remove();
+    // Restore source row opacity
+    if (td.sourceRow) td.sourceRow.style.opacity = "";
+    // Remove highlight from last hovered element
+    if (td._lastOverEl) td._lastOverEl.style.outline = "";
 
-      setDraggedItemId(null);
-      setDragOverItemId(null);
+    const fromId = td.itemId;
+    const toId = td._lastOverId;
 
-      if (fromId && toId && fromId !== toId && reorderPlannerItemRef.current) {
-        reorderPlannerItemRef.current(fromId, toId);
-      }
-    };
+    touchDragRef.current = { active: false, itemId: null, ghost: null, sourceRow: null, scrollInterval: null, _lastOverId: null, _lastOverEl: null };
+    setDraggedItemId(null);
+    setDragOverItemId(null);
 
-    el.addEventListener("touchstart", onTouchStart, { passive: false });
-    el.addEventListener("touchmove", onTouchMove, { passive: false });
-    el.addEventListener("touchend", onTouchEnd);
+    if (fromId && toId && fromId !== toId && reorderPlannerItemRef.current) {
+      reorderPlannerItemRef.current(fromId, toId);
+    }
   }, []);
 
   // State for donut chart category drill-down
@@ -927,6 +979,35 @@ export default function MaverickFinance() {
   // ═══════════════════════════════════════════════════════════════════════
   const [expenseTemplates, setExpenseTemplates] = useState(init("expenseTemplates", []));
   const [showTemplates, setShowTemplates] = useState(false);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // FEATURE 4: ANNUAL SUMMARY / YEAR-IN-REVIEW
+  // ═══════════════════════════════════════════════════════════════════════
+  const [annualYear, setAnnualYear] = useState(new Date().getFullYear());
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // FEATURE 5: CUSTOM DASHBOARD
+  // ═══════════════════════════════════════════════════════════════════════
+  const [dashboardWidgets, setDashboardWidgets] = useState(init("dashboardWidgets", [
+    { id: "quickActions", label: "Quick Actions", enabled: true },
+    { id: "paychecks", label: "Paychecks", enabled: true },
+    { id: "statCards", label: "Stat Cards", enabled: true },
+    { id: "incomeVsExpense", label: "Income vs Expense Trend", enabled: true },
+    { id: "savingsRate", label: "Savings Rate", enabled: true },
+    { id: "budgetChart", label: "Budget Breakdown", enabled: true },
+    { id: "spendingChart", label: "Spending by Category", enabled: true },
+    { id: "upcomingBills", label: "Upcoming Bills", enabled: true },
+    { id: "debtProgress", label: "Debt Progress", enabled: true },
+    { id: "healthScore", label: "Health Score", enabled: true },
+  ]));
+  const [showDashboardSettings, setShowDashboardSettings] = useState(false);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // FEATURE 6: RECEIPT/DOCUMENT ATTACHMENT WITH LIBRARY
+  // ═══════════════════════════════════════════════════════════════════════
+  const [receiptLibrary, setReceiptLibrary] = useState(init("receiptLibrary", {}));
+  const [receiptViewId, setReceiptViewId] = useState(null);
+  const [receiptFilter, setReceiptFilter] = useState("");
 
   // ═══════════════════════════════════════════════════════════════════════
   // DEBT STRATEGY TOGGLE
@@ -1213,7 +1294,7 @@ export default function MaverickFinance() {
 
   const estimateFico = (inputs, debtData) => {
     // Credit utilization from actual debt data — per-card + aggregate
-    const creditDebts = debtData.filter(d => d.debtType === 'credit_card' || d.debtType === 'line_of_credit');
+    const creditDebts = debtData.filter(isCreditDebt);
     const totalUsed = creditDebts.reduce((s, d) => s + d.balance, 0);
     const totalLimit = creditDebts.reduce((s, d) => s + (d.creditLimit || 0), 0);
     const aggregateUtil = totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
@@ -1334,7 +1415,7 @@ export default function MaverickFinance() {
   }, [ficoScore, ficoCalibrationOffset, ficoReportScore]);
 
   const ficoWhatIfScenarios = useMemo(() => {
-    const creditDebts = debts.filter(d => d.debtType === 'credit_card' || d.debtType === 'line_of_credit');
+    const creditDebts = debts.filter(isCreditDebt);
     const totalUsed = creditDebts.reduce((s, d) => s + d.balance, 0);
     const totalLimit = creditDebts.reduce((s, d) => s + (d.creditLimit || 0), 0);
     const baseScore = ficoCalibratedScore; // anchor to calibrated score
@@ -1347,7 +1428,7 @@ export default function MaverickFinance() {
 
     // Pay off all credit cards
     if (totalUsed > 0) {
-      const paidOff = debts.map(d => (d.debtType === 'credit_card' || d.debtType === 'line_of_credit') ? { ...d, balance: 0 } : d);
+      const paidOff = debts.map(d => isCreditDebt(d) ? { ...d, balance: 0 } : d);
       const newScore = scenarioScore(ficoInputs, paidOff);
       scenarios.push({ label: 'Pay off all credit cards', icon: '💳', newScore, delta: newScore - baseScore });
     }
@@ -1356,7 +1437,7 @@ export default function MaverickFinance() {
     if (totalLimit > 0 && (totalUsed / totalLimit) > 0.1) {
       const target10 = totalLimit * 0.1;
       const ratio = target10 / (totalUsed || 1);
-      const reduced = debts.map(d => (d.debtType === 'credit_card' || d.debtType === 'line_of_credit') ? { ...d, balance: Math.round(d.balance * ratio) } : d);
+      const reduced = debts.map(d => isCreditDebt(d) ? { ...d, balance: Math.round(d.balance * ratio) } : d);
       const newScore = scenarioScore(ficoInputs, reduced);
       scenarios.push({ label: 'Reduce utilization to 10%', icon: '📉', newScore, delta: newScore - baseScore });
     }
@@ -1437,7 +1518,7 @@ export default function MaverickFinance() {
     }, 0);
     const totalBills = bills.reduce((s, b) => s + (parseFloat(b.amount) || 0), 0);
     const totalDebtBal = debts.reduce((s, d) => s + (d.balance || 0), 0);
-    const totalDebtPay = debts.reduce((s, d) => s + ((d.minPayment + d.extraPayment) * freqMultiplier(d.frequency) || 0), 0);
+    const totalDebtPay = debts.reduce((s, d) => s + ((getDebtPayment(d)) * freqMultiplier(d.frequency) || 0), 0);
     const totalSaved = goals.reduce((s, g) => s + (g.saved || 0), 0);
     const totalSavingsTargets = goals.reduce((s, g) => s + (g.target || 0), 0);
     const totalMonthlySavings = goals.reduce((s, g) => s + (g.monthlyContribution || 0), 0);
@@ -1448,7 +1529,7 @@ export default function MaverickFinance() {
     const savingsRate = totalMonthlyIncome > 0 ? ((totalMonthlySavings / totalMonthlyIncome) * 100).toFixed(1) : 0;
     const dti = totalMonthlyIncome > 0 ? ((totalDebtPay / totalMonthlyIncome) * 100).toFixed(1) : 0;
 
-    const creditDebts = debts.filter(d => d.debtType === 'credit_card' || d.debtType === 'line_of_credit');
+    const creditDebts = debts.filter(isCreditDebt);
     const totalCreditUsed = creditDebts.reduce((s, d) => s + d.balance, 0);
     const totalCreditLimit = creditDebts.reduce((s, d) => s + (d.creditLimit || 0), 0);
     const creditUtil = totalCreditLimit > 0 ? ((totalCreditUsed / totalCreditLimit) * 100).toFixed(1) : 'N/A';
@@ -1475,7 +1556,7 @@ DEBT:
 - Monthly debt payments: $${totalDebtPay.toFixed(2)}
 - Debt-to-Income ratio: ${dti}%
 - Strategy: ${debtStrategy}
-- Individual debts: ${debts.map(d => `${d.name} ($${d.balance} at ${d.rate}% APR, ${d.debtType || 'loan'}, paying $${d.minPayment + d.extraPayment}/${d.frequency})`).join('; ') || 'None'}
+- Individual debts: ${debts.map(d => `${d.name} ($${d.balance} at ${d.rate}% APR, ${d.debtType || 'loan'}, paying $${getDebtPayment(d)}/${d.frequency || 'monthly'})`).join('; ') || 'None'}
 
 CREDIT:
 - Credit utilization: ${creditUtil}%${totalCreditLimit > 0 ? ` ($${totalCreditUsed.toFixed(2)} of $${totalCreditLimit.toFixed(2)} limit)` : ''}
@@ -1485,7 +1566,7 @@ SAVINGS:
 - Total saved: $${totalSaved.toFixed(2)} of $${totalSavingsTargets.toFixed(2)} targets
 - Monthly savings contributions: $${totalMonthlySavings.toFixed(2)}
 - Savings rate: ${savingsRate}%
-- Goals: ${goals.map(g => `${g.name} ($${g.saved.toFixed(2)}/$${g.target}, $${g.monthlyContribution}/mo)`).join('; ') || 'None'}
+- Goals: ${goals.map(g => `${g.name} ($${(g.saved || 0).toFixed(2)}/$${g.target}, $${(g.monthlyContribution || 0)}/mo)`).join('; ') || 'None'}
 
 SPENDING (Current Month):
 - Manual expenses logged: $${monthlyExpenses.toFixed(2)}
@@ -1737,7 +1818,8 @@ The user's current financial data:
         payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
         wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges,
         rolloverEnabled, rolloverOverrides, creditHistory,
-        maverickApiKey, maverickProvider, maverickMessages, ficoInputs, ficoReportScore
+        maverickApiKey, maverickProvider, maverickMessages, ficoInputs, ficoReportScore,
+        dashboardWidgets, receiptLibrary
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       saveToCloud(data);
@@ -1749,7 +1831,8 @@ The user's current financial data:
     payCalcEntries, payCalcSettings, savingsTransactions, plannerOrderByMonth, subscriptions,
     wishlist, expenseTemplates, debtStrategy, cashFlowStartBal, tabOrder, showBadges,
     rolloverEnabled, rolloverOverrides, creditHistory,
-    maverickApiKey, maverickProvider, maverickMessages, ficoInputs, ficoReportScore]);
+    maverickApiKey, maverickProvider, maverickMessages, ficoInputs, ficoReportScore,
+    dashboardWidgets, receiptLibrary]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // DERIVED DATA for the viewed month
@@ -1812,7 +1895,7 @@ The user's current financial data:
     const results = [];
     debts.forEach((d) => {
       const freq = d.frequency || "monthly";
-      const paymentAmt = d.minPayment + d.extraPayment;
+      const paymentAmt = getDebtPayment(d);
       const dueDay = Math.min(d.dueDay || 1, daysInMo);
 
       if (freq === "monthly") {
@@ -1866,7 +1949,7 @@ The user's current financial data:
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
     return subscriptions.filter(s => s.active).map((s) => {
       // Calculate monthly equivalent amount
-      const monthlyAmount = s.frequency === "yearly" ? s.amount / 12 : s.frequency === "quarterly" ? s.amount / 3 : s.frequency === "weekly" ? s.amount * 4.33 : s.amount;
+      const monthlyAmount = normalizeToMonthly(s.amount, s.frequency);
       // Determine the date for this month
       let dayStr = "01";
       if (s.nextBillDate) {
@@ -1895,7 +1978,7 @@ The user's current financial data:
   }, [recurringBillExpenses, recurringDebtExpenses, recurringSavingsExpenses, recurringSubExpenses, manualExpenses]);
 
   const totalBills = bills.reduce((s, b) => s + b.amount, 0);
-  const totalDebtPayments = debts.reduce((s, d) => s + (d.minPayment + d.extraPayment) * freqMultiplier(d.frequency), 0);
+  const totalDebtPayments = debts.reduce((s, d) => s + (getDebtPayment(d)) * freqMultiplier(d.frequency), 0);
   const totalSavingsContrib = goals.reduce((s, g) => s + g.monthlyContribution, 0);
   const totalManualExpenses = manualExpenses.reduce((s, e) => s + e.amount, 0);
   const totalAllExpenses = allMonthExpenses.reduce((s, e) => s + e.amount, 0);
@@ -1967,6 +2050,77 @@ The user's current financial data:
     return points;
   }, [incomeSources, extraChecks, bills, debts, goals, incomeOverrides, plannerDismissedByMonth, plannerManualByMonth, plannerPaidByMonth, viewYear, viewMonth]);
 
+  // Income vs Expense Trend (12 months)
+  const incomeVsExpenseTrend = useMemo(() => {
+    const points = [];
+    const now = new Date();
+    for (let i = 11; i >= 0; i--) {
+      let m = now.getMonth() - i;
+      let y = now.getFullYear();
+      while (m < 0) { m += 12; y--; }
+
+      // Income: compute from incomeSources using generatePayDates
+      let totalIncome = 0;
+      incomeSources.forEach(src => {
+        const dates = generatePayDates(src, y, m);
+        dates.forEach(() => { totalIncome += src.amount; });
+      });
+      const ek = monthKey(y, m);
+      const extras = extraChecks[ek] || [];
+      extras.forEach(e => { totalIncome += e.amount; });
+
+      // Expenses: bills + debt payments + savings + subscriptions
+      let totalExpenses = bills.reduce((s, b) => s + b.amount, 0);
+      totalExpenses += debts.reduce((s, d) => s + getDebtPayment(d) * freqMultiplier(d.frequency), 0);
+      totalExpenses += goals.reduce((s, g) => s + g.monthlyContribution, 0);
+      totalExpenses += subscriptions.filter(s => s.active).reduce((s, sub) => {
+        if (sub.frequency === 'yearly') return s + sub.amount / 12;
+        if (sub.frequency === 'quarterly') return s + sub.amount / 3;
+        if (sub.frequency === 'weekly') return s + sub.amount * 4.33;
+        return s + sub.amount;
+      }, 0);
+      // Add manual expenses for the month
+      const manualExp = (expensesByMonth[ek] || []).reduce((s, e) => s + e.amount, 0);
+      totalExpenses += manualExp;
+
+      const label = new Date(y, m).toLocaleDateString("en-US", { month: "short" });
+      points.push({ month: label, income: Math.round(totalIncome), expenses: Math.round(totalExpenses), surplus: Math.round(totalIncome - totalExpenses) });
+    }
+    return points;
+  }, [incomeSources, extraChecks, bills, debts, goals, subscriptions, expensesByMonth]);
+
+  // Memoized health scores — used by both badge check and Health tab render
+  const healthScores = useMemo(() => {
+    const scores = [];
+    const monthlyExp = bills.reduce((s, b) => s + b.amount, 0) + debts.reduce((s, d) => s + (getDebtPayment(d)) * freqMultiplier(d.frequency), 0);
+    const emergencyTarget = monthlyExp * 3;
+    const emergencyFund = assets.filter(a => a.category === 'Cash').reduce((s, a) => s + a.balance, 0);
+    const efScore = Math.min(20, Math.round((emergencyFund / Math.max(emergencyTarget, 1)) * 20));
+    scores.push({ label: 'Emergency Fund', score: efScore, max: 20, detail: `${fmt(emergencyFund)} of ${fmt(emergencyTarget)} (3 months)`, color: efScore >= 15 ? 'emerald' : efScore >= 10 ? 'amber' : 'rose' });
+
+    const dti = monthlyIncome > 0 ? (debts.reduce((s, d) => s + (getDebtPayment(d)) * freqMultiplier(d.frequency), 0)) / monthlyIncome : 1;
+    const dtiScore = dti <= 0.1 ? 20 : dti <= 0.2 ? 16 : dti <= 0.36 ? 12 : dti <= 0.5 ? 6 : 0;
+    scores.push({ label: 'Debt-to-Income', score: dtiScore, max: 20, detail: `${Math.round(dti * 100)}% DTI ratio`, color: dtiScore >= 15 ? 'emerald' : dtiScore >= 10 ? 'amber' : 'rose' });
+
+    const savingsRate = monthlyIncome > 0 ? goals.reduce((s, g) => s + g.monthlyContribution, 0) / monthlyIncome : 0;
+    const srScore = savingsRate >= 0.2 ? 20 : savingsRate >= 0.15 ? 16 : savingsRate >= 0.1 ? 12 : savingsRate >= 0.05 ? 6 : 0;
+    scores.push({ label: 'Savings Rate', score: srScore, max: 20, detail: `${Math.round(savingsRate * 100)}% of income`, color: srScore >= 15 ? 'emerald' : srScore >= 10 ? 'amber' : 'rose' });
+
+    const billCoverage = monthlyIncome > 0 ? bills.reduce((s, b) => s + b.amount, 0) / monthlyIncome : 1;
+    const bcScore = billCoverage <= 0.3 ? 20 : billCoverage <= 0.4 ? 16 : billCoverage <= 0.5 ? 12 : billCoverage <= 0.6 ? 6 : 0;
+    scores.push({ label: 'Bills to Income', score: bcScore, max: 20, detail: `${Math.round(billCoverage * 100)}% of income`, color: bcScore >= 15 ? 'emerald' : bcScore >= 10 ? 'amber' : 'rose' });
+
+    const nwVal = assets.reduce((s, a) => s + (a.balance || 0), 0) - liabilities.reduce((s, l) => s + (l.balance || 0), 0);
+    const nwPositive = nwVal > 0;
+    const nwScore = nwPositive ? (netWorthHistory.length >= 2 && netWorthHistory[netWorthHistory.length - 1].netWorth > netWorthHistory[netWorthHistory.length - 2].netWorth ? 20 : 14) : 0;
+    scores.push({ label: 'Net Worth', score: nwScore, max: 20, detail: nwPositive ? `${fmt(nwVal)} positive` : 'Negative net worth', color: nwScore >= 15 ? 'emerald' : nwScore >= 10 ? 'amber' : 'rose' });
+
+    const totalScore = scores.reduce((s, sc) => s + sc.score, 0);
+    const grade = totalScore >= 85 ? 'A' : totalScore >= 70 ? 'B' : totalScore >= 55 ? 'C' : totalScore >= 40 ? 'D' : 'F';
+    const gradeColor = totalScore >= 85 ? 'text-emerald-500' : totalScore >= 70 ? 'text-cyan-500' : totalScore >= 55 ? 'text-amber-500' : 'text-rose-500';
+    return { scores, totalScore, grade, gradeColor };
+  }, [bills, debts, monthlyIncome, goals, assets, liabilities, netWorthHistory]);
+
   // Notification badges (Feature 4: Notification Badges)
   const tabBadges = useMemo(() => {
     if (!showBadges) return {};
@@ -1984,23 +2138,10 @@ The user's current financial data:
     })) badges.expenses = true;
     // Savings: goal reached
     if (goals.some(g => g.saved >= g.target)) badges.savings = true;
-    // Health: score < 50 (computed inline for efficiency)
-    const efScore = (() => {
-      const monthlyExp = bills.reduce((s, b) => s + b.amount, 0) + debts.reduce((s, d) => s + (d.minPayment + d.extraPayment) * freqMultiplier(d.frequency), 0);
-      const emergencyTarget = monthlyExp * 3;
-      const emergencyFund = assets.filter(a => a.category === 'Cash').reduce((s, a) => s + a.balance, 0);
-      return Math.min(20, Math.round((emergencyFund / Math.max(emergencyTarget, 1)) * 20));
-    })();
-    const dti = monthlyIncome > 0 ? (debts.reduce((s, d) => s + (d.minPayment + d.extraPayment) * freqMultiplier(d.frequency), 0)) / monthlyIncome : 1;
-    const dtiScore = dti <= 0.1 ? 20 : dti <= 0.2 ? 16 : dti <= 0.36 ? 12 : dti <= 0.5 ? 6 : 0;
-    const savingsRate = monthlyIncome > 0 ? goals.reduce((s, g) => s + g.monthlyContribution, 0) / monthlyIncome : 0;
-    const srScore = savingsRate >= 0.2 ? 20 : savingsRate >= 0.15 ? 16 : savingsRate >= 0.1 ? 12 : savingsRate >= 0.05 ? 6 : 0;
-    const billCoverage = monthlyIncome > 0 ? bills.reduce((s, b) => s + b.amount, 0) / monthlyIncome : 1;
-    const bcScore = billCoverage <= 0.3 ? 20 : billCoverage <= 0.4 ? 16 : billCoverage <= 0.5 ? 12 : billCoverage <= 0.6 ? 6 : 0;
-    const totalScore = efScore + dtiScore + srScore + bcScore + 20; // +20 for net worth
-    if (totalScore < 50) badges.health = true;
+    // Health: score < 50
+    if (healthScores.totalScore < 50) badges.health = true;
     return badges;
-  }, [showBadges, bills, debts, monthlyIncome, totalDebtPayments, categoryBudgets, manualExpenses, goals, assets, isCurrentMonth, today]);
+  }, [showBadges, bills, debts, monthlyIncome, totalDebtPayments, categoryBudgets, manualExpenses, goals, isCurrentMonth, today, healthScores]);
 
   // Cash flow timeline — day-by-day for the viewed month
   const cashFlowTimeline = useMemo(() => {
@@ -2015,9 +2156,25 @@ The user's current financial data:
       const day = Math.min(b.dueDay, daysInMonth);
       events.push({ day, amount: -b.amount, label: b.name, type: "bill" });
     });
-    // Debt payment events
+    // Debt payment events — placed on actual due day
     debts.forEach((d) => {
-      events.push({ day: 1, amount: -((d.minPayment + d.extraPayment) * freqMultiplier(d.frequency)), label: `${d.name} payment`, type: "debt" });
+      const payAmt = getDebtPayment(d);
+      if (payAmt <= 0) return;
+      const dueDay = Math.min(d.dueDay || 1, daysInMonth);
+      const freq = d.frequency || "monthly";
+      if (freq === "monthly") {
+        events.push({ day: dueDay, amount: -payAmt, label: `${d.name} payment`, type: "debt" });
+      } else if (freq === "semimonthly") {
+        events.push({ day: Math.min(1, daysInMonth), amount: -payAmt, label: `${d.name} payment`, type: "debt" });
+        events.push({ day: Math.min(15, daysInMonth), amount: -payAmt, label: `${d.name} payment`, type: "debt" });
+      } else {
+        const interval = freq === "weekly" ? 7 : 14;
+        let cursor = dueDay;
+        while (cursor <= daysInMonth) {
+          events.push({ day: cursor, amount: -payAmt, label: `${d.name} payment`, type: "debt" });
+          cursor += interval;
+        }
+      }
     });
     // Savings events
     goals.forEach((g) => {
@@ -2094,7 +2251,7 @@ The user's current financial data:
   const debtTimelines = useMemo(() => {
     return debts.map((d) => {
       const monthlyRate = d.rate / 100 / 12;
-      const perPayment = d.minPayment + d.extraPayment;
+      const perPayment = getDebtPayment(d);
       const monthlyPayment = perPayment * freqMultiplier(d.frequency);
       if (monthlyPayment <= 0) return { ...d, months: Infinity, totalInterest: Infinity };
       let balance = d.balance;
@@ -2115,7 +2272,7 @@ The user's current financial data:
   const debtStrategies = useMemo(() => {
     if (debts.length < 2) return null;
     const simulate = (sortFn) => {
-      let pool = debts.map(d => ({ ...d, bal: d.balance, monthlyMin: (d.minPayment + d.extraPayment) * freqMultiplier(d.frequency) }));
+      let pool = debts.map(d => ({ ...d, bal: d.balance, monthlyMin: (getDebtPayment(d)) * freqMultiplier(d.frequency) }));
       let months = 0, totalInterest = 0;
       const payoffOrder = [];
       const totalMonthlyPayment = pool.reduce((s, d) => s + d.monthlyMin, 0);
@@ -2396,7 +2553,7 @@ The user's current financial data:
   const snapshotCreditBalances = () => {
     const today = new Date().toISOString().slice(0, 10);
     const updated = { ...creditHistory };
-    debts.filter(d => d.debtType === 'credit_card' || d.debtType === 'line_of_credit').forEach(d => {
+    debts.filter(isCreditDebt).forEach(d => {
       if (!updated[d.id]) updated[d.id] = [];
       const existing = updated[d.id];
       if (existing.length > 0 && existing[existing.length - 1].date === today) {
@@ -2477,9 +2634,9 @@ The user's current financial data:
     // Debt payments — frequency-aware (monthly, semimonthly, biweekly, weekly)
     // Skip debts with no payment amount (e.g. collections without a payment plan)
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-    debts.filter(d => ((d.minPayment || 0) + (d.extraPayment || 0)) > 0 && d.frequency).forEach((d) => {
+    debts.filter(d => ((d.minPayment || 0) + (d.extraPayment || 0)) > 0).forEach((d) => {
       const freq = d.frequency || "monthly";
-      const paymentAmt = d.minPayment + d.extraPayment;
+      const paymentAmt = getDebtPayment(d);
       const dueDay = Math.min(d.dueDay || 1, daysInMonth);
 
       if (freq === "monthly") {
@@ -2641,6 +2798,10 @@ The user's current financial data:
     const item = plannerItems.find((i) => i.id === id);
     if (item) {
       const copy = { id: uid(), label: item.label, amount: item.amount, type: item.type, paid: false };
+      // Preserve dueDay if the source item (or its manual original) had one
+      const manualItems = plannerManualByMonth[vKey] || [];
+      const originalManual = manualItems.find(m => m.id === id);
+      if (originalManual && originalManual.dueDay) copy.dueDay = originalManual.dueDay;
       const key = vKey;
       setPlannerManualByMonth({ ...plannerManualByMonth, [key]: [...(plannerManualByMonth[key] || []), copy] });
     }
@@ -2757,6 +2918,17 @@ The user's current financial data:
     liabilities.forEach(l => { entry[`liability-${l.id}`] = { name: l.name, type: 'liability', balance: l.balance }; });
     setBalanceHistory(prev => ({ ...prev, [date]: entry }));
   };
+
+  // Auto-snapshot net worth at start of each month
+  useEffect(() => {
+    if (assets.length === 0 && liabilities.length === 0 && debts.length === 0) return;
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const hasSnapshot = netWorthHistory.some(e => e.date === currentMonth);
+    if (!hasSnapshot) {
+      snapshotNetWorth();
+      snapshotBalances();
+    }
+  }, []);
 
   const savePlannerNote = (id) => {
     const key = vKey;
@@ -2902,6 +3074,106 @@ The user's current financial data:
   const pcFedRate = payCalcSettings.autoTax ? taxEstimate.effFedRate : payCalcSettings.federalRate;
   const pcStateRate = payCalcSettings.autoTax ? taxEstimate.stateRate : payCalcSettings.stateRate;
   const pcFicaRate = payCalcSettings.autoTax ? taxEstimate.ficaRate : payCalcSettings.ficaRate;
+
+  // ─── FEATURE 5: Dashboard widget helper ───
+  const isWidgetEnabled = (id) => dashboardWidgets.find(w => w.id === id)?.enabled !== false;
+
+  // ─── FEATURE 6: Receipt attachment helpers ───
+  const attachReceipt = (expenseId) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/jpeg,image/png,application/pdf';
+    input.onchange = (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (file.size > 5 * 1024 * 1024) {
+        alert('File too large. Max size is 5MB to avoid localStorage limits.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        setReceiptLibrary(prev => ({
+          ...prev,
+          [expenseId]: { data: reader.result, name: file.name, type: file.type, size: file.size, date: new Date().toISOString() }
+        }));
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
+
+  const removeReceipt = (expenseId) => {
+    setReceiptLibrary(prev => {
+      const updated = { ...prev };
+      delete updated[expenseId];
+      return updated;
+    });
+  };
+
+  // ─── FEATURE 4: Annual Summary useMemo ───
+  const annualSummary = useMemo(() => {
+    const y = annualYear;
+    let totalEarned = 0, totalSpent = 0, totalSaved = 0, totalDebtPaid = 0;
+    const monthlyData = [];
+    const categoryTotals = {};
+
+    for (let m = 0; m < 12; m++) {
+      const mk = monthKey(y, m);
+      // Income
+      let monthIncome = 0;
+      incomeSources.forEach(src => {
+        const dates = generatePayDates(src, y, m);
+        dates.forEach(d => {
+          const checkId = `${src.id}-${d.toISOString()}`;
+          const override = (incomeOverrides[mk] || {})[checkId];
+          monthIncome += override !== undefined ? override : src.amount;
+        });
+      });
+      const extras = extraChecks[mk] || [];
+      extras.forEach(e => { monthIncome += e.amount; });
+      totalEarned += monthIncome;
+
+      // Expenses (manual)
+      const manualExp = expensesByMonth[mk] || [];
+      const monthManual = manualExp.reduce((s, e) => s + e.amount, 0);
+      manualExp.forEach(e => { categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount; });
+
+      // Recurring bills
+      const monthBills = bills.reduce((s, b) => s + b.amount, 0);
+      // Debt payments
+      const monthDebt = debts.reduce((s, d) => s + getDebtPayment(d) * freqMultiplier(d.frequency), 0);
+      // Savings
+      const monthSavings = goals.reduce((s, g) => s + g.monthlyContribution, 0);
+      // Subscriptions
+      const monthSubs = subscriptions.filter(s => s.active).reduce((s, sub) => {
+        if (sub.frequency === 'yearly') return s + sub.amount / 12;
+        if (sub.frequency === 'quarterly') return s + sub.amount / 3;
+        if (sub.frequency === 'weekly') return s + sub.amount * 4.33;
+        return s + sub.amount;
+      }, 0);
+
+      const monthTotal = monthManual + monthBills + monthDebt + monthSavings + monthSubs;
+      totalSpent += monthTotal;
+      totalSaved += monthSavings;
+      totalDebtPaid += monthDebt;
+
+      const label = new Date(y, m).toLocaleDateString("en-US", { month: "short" });
+      monthlyData.push({ month: label, income: Math.round(monthIncome), expenses: Math.round(monthTotal), m });
+    }
+
+    // Net worth change
+    const janEntry = netWorthHistory.find(e => e.date === `${y}-01`);
+    const decEntry = netWorthHistory.find(e => e.date === `${y}-12`) || netWorthHistory.filter(e => e.date.startsWith(`${y}-`)).pop();
+    const nwChange = (janEntry && decEntry) ? decEntry.netWorth - janEntry.netWorth : null;
+
+    // Top categories
+    const topCategories = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+    // Biggest expense months
+    const biggestMonths = [...monthlyData].sort((a, b) => b.expenses - a.expenses).slice(0, 3);
+
+    return { totalEarned, totalSpent, totalSaved, totalDebtPaid, nwChange, topCategories, biggestMonths, monthlyData };
+  }, [annualYear, incomeSources, extraChecks, incomeOverrides, bills, debts, goals, subscriptions, expensesByMonth, netWorthHistory]);
 
   // ─── Onboarding wizard helpers ───
   const finishOnboarding = () => {
@@ -4343,6 +4615,40 @@ The user's current financial data:
         {tab === "dashboard" && (
           <>
 
+            {/* FEATURE 5: Dashboard Settings Panel */}
+            <div className="flex justify-end mb-3">
+              <button onClick={() => setShowDashboardSettings(!showDashboardSettings)}
+                className={`p-2 rounded-lg transition ${dm('hover:bg-gray-100 text-gray-500', 'hover:bg-slate-700 text-slate-400')}`}>
+                <Settings size={18} />
+              </button>
+            </div>
+
+            {showDashboardSettings && (
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Dashboard Widgets</h3>
+                  <button onClick={() => setShowDashboardSettings(false)}>
+                    <X size={16} className={dm('text-gray-400', 'text-gray-500')} />
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {dashboardWidgets.map((w, i) => (
+                    <label key={w.id} className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer ${dm('hover:bg-gray-50', 'hover:bg-slate-700/50')} transition`}>
+                      <span className={`text-sm ${dm('text-gray-700', 'text-gray-300')}`}>{w.label}</span>
+                      <div className={`relative w-10 h-5 rounded-full transition-colors ${w.enabled ? 'bg-indigo-500' : dm('bg-gray-200', 'bg-slate-600')}`}
+                        onClick={() => {
+                          const updated = [...dashboardWidgets];
+                          updated[i] = { ...w, enabled: !w.enabled };
+                          setDashboardWidgets(updated);
+                        }}>
+                        <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${w.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </Card>
+            )}
+
             {/* Feature 7: Budget warning if over */}
             {(() => {
               const overBudgetCats = Object.entries(categoryBudgets).filter(([cat, budget]) => {
@@ -4358,6 +4664,7 @@ The user's current financial data:
             })()}
 
             {/* Feature 3: Dashboard Quick Actions */}
+            {isWidgetEnabled("quickActions") && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <button onClick={() => { setExpDraft({ description: "", amount: "", category: "Other", date: `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(Math.min(today.getDate(), new Date(viewYear, viewMonth + 1, 0).getDate())).padStart(2, "0")}`, merchant: "" }); setTab("expenses"); }}
                 className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 transition ${dm('bg-white border-indigo-200 hover:bg-indigo-50 text-indigo-700', 'bg-slate-800 border-indigo-600/50 hover:bg-slate-700 text-indigo-300')}`}>
@@ -4380,8 +4687,10 @@ The user's current financial data:
                 <span className="text-xs font-semibold">+ Goal</span>
               </button>
             </div>
+            )}
 
             {/* Income Sources + Paychecks for this month */}
+            {isWidgetEnabled("paychecks") && (
             <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
               <div className="flex items-center justify-between mb-4">
                 <div>
@@ -4405,11 +4714,7 @@ The user's current financial data:
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100">
                   <input placeholder="Source name" value={incomeDraft.name} onChange={(e) => setIncomeDraft({ ...incomeDraft, name: e.target.value })}
                     className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                    <input type="number" placeholder="Per check" value={incomeDraft.amount} onChange={(e) => setIncomeDraft({ ...incomeDraft, amount: e.target.value })}
-                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                  </div>
+                  <CurrencyInput placeholder="Per check" value={incomeDraft.amount} onChange={(e) => setIncomeDraft({ ...incomeDraft, amount: e.target.value })} />
                   <select value={incomeDraft.frequency} onChange={(e) => setIncomeDraft({ ...incomeDraft, frequency: e.target.value })}
                     className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     {PAY_FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -4432,11 +4737,7 @@ The user's current financial data:
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 p-3 bg-emerald-50/50 rounded-xl border border-emerald-100">
                   <input placeholder="Label (e.g. Bonus)" value={extraCheckDraft.label} onChange={(e) => setExtraCheckDraft({ ...extraCheckDraft, label: e.target.value })}
                     className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                    <input type="number" placeholder="Amount" value={extraCheckDraft.amount} onChange={(e) => setExtraCheckDraft({ ...extraCheckDraft, amount: e.target.value })}
-                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                  </div>
+                  <CurrencyInput placeholder="Amount" value={extraCheckDraft.amount} onChange={(e) => setExtraCheckDraft({ ...extraCheckDraft, amount: e.target.value })} />
                   <input type="date" value={extraCheckDraft.date} onChange={(e) => setExtraCheckDraft({ ...extraCheckDraft, date: e.target.value })}
                     className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                   <div className="flex gap-2">
@@ -4498,9 +4799,9 @@ The user's current financial data:
                                 className="w-24 pl-5 pr-2 py-1 border border-emerald-300 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500" autoFocus />
                             </div>
                             <button onClick={() => { if (editingCheckAmount) saveCheckOverride(p.id, +editingCheckAmount); }}
-                              className="p-1 text-emerald-600 hover:text-emerald-700"><Check size={14} /></button>
+                              className="p-2 text-emerald-600 hover:text-emerald-700 min-w-[36px] min-h-[36px] flex items-center justify-center"><Check size={16} /></button>
                             <button onClick={() => setEditingCheckId(null)}
-                              className="p-1 text-gray-400 hover:text-gray-600"><X size={14} /></button>
+                              className="p-2 text-gray-400 hover:text-gray-600 min-w-[36px] min-h-[36px] flex items-center justify-center"><X size={16} /></button>
                           </div>
                         ) : (
                           <button onClick={() => { setEditingCheckId(p.id); setEditingCheckAmount(String(p.amount)); }}
@@ -4528,14 +4829,17 @@ The user's current financial data:
                 <span className="text-lg font-bold text-emerald-600">{fmt(totalPaychecks)}</span>
               </div>
             </Card>
+            )}
 
             {/* Stat Cards */}
+            {isWidgetEnabled("statCards") && (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={DollarSign} label="Monthly Income" value={fmt(monthlyIncome)} sub={`${monthPaychecks.length} check${monthPaychecks.length !== 1 ? "s" : ""} · avg ${fmt(avgPaycheck)}`} color="green" />
               <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={Calendar} label="Total Outgoing" value={fmt(totalAllExpenses)} sub={`Bills · Debt · Savings · Spending`} color="amber" />
               <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={PiggyBank} label="Savings" value={fmt(totalSavingsContrib)} sub={`${goals.length} goals (incl. in total)`} color="cyan" />
               <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={Wallet} label="Remaining" value={fmt(remainingBudget)} sub={remainingBudget < 0 ? "Over budget!" : "After all obligations"} color={remainingBudget < 0 ? "rose" : "indigo"} />
             </div>
+            )}
 
             {/* Per-Paycheck Allocation Bar */}
             <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
@@ -4556,7 +4860,79 @@ The user's current financial data:
               </div>
             </Card>
 
+            {/* Income vs Expense Trend */}
+            {isWidgetEnabled("incomeVsExpense") && (
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3 flex items-center gap-2`}>
+                <TrendingUp size={16} className="text-emerald-500" /> Income vs Expenses (12 mo)
+              </h3>
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={incomeVsExpenseTrend}>
+                    <defs>
+                      <linearGradient id="incGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="expGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: darkMode ? '#9ca3af' : '#6b7280' }} />
+                    <YAxis tick={{ fontSize: 10, fill: darkMode ? '#9ca3af' : '#6b7280' }} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
+                    <Tooltip formatter={(v) => fmt(v)} contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', border: 'none', borderRadius: '12px', fontSize: '12px' }} />
+                    <Area type="monotone" dataKey="income" stroke="#10b981" fill="url(#incGrad)" strokeWidth={2} name="Income" />
+                    <Area type="monotone" dataKey="expenses" stroke="#f43f5e" fill="url(#expGrad)" strokeWidth={2} name="Expenses" />
+                    <Legend wrapperStyle={{ fontSize: '11px' }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              {incomeVsExpenseTrend.length > 0 && (() => {
+                const latest = incomeVsExpenseTrend[incomeVsExpenseTrend.length - 1];
+                return (
+                  <div className={`mt-3 flex items-center justify-between text-xs ${dm('text-gray-500', 'text-gray-400')}`}>
+                    <span>This month: {fmt(latest.income)} in / {fmt(latest.expenses)} out</span>
+                    <span className={latest.surplus >= 0 ? 'text-emerald-500 font-semibold' : 'text-rose-500 font-semibold'}>
+                      {latest.surplus >= 0 ? '+' : ''}{fmt(latest.surplus)} surplus
+                    </span>
+                  </div>
+                );
+              })()}
+            </Card>
+            )}
+
+            {/* Savings Rate Widget */}
+            {isWidgetEnabled("savingsRate") && (() => {
+              const srTotal = goals.reduce((s, g) => s + g.monthlyContribution, 0);
+              const srRate = monthlyIncome > 0 ? (srTotal / monthlyIncome) * 100 : 0;
+              const srColor = srRate >= 20 ? '#10b981' : srRate >= 10 ? '#f59e0b' : '#f43f5e';
+              return (
+                <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                  <div className="flex items-center gap-4">
+                    <div className="relative w-16 h-16 flex-shrink-0">
+                      <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="42" fill="none" stroke={darkMode ? '#1e293b' : '#f1f5f9'} strokeWidth="10" />
+                        <circle cx="50" cy="50" r="42" fill="none" stroke={srColor} strokeWidth="10" strokeLinecap="round" strokeDasharray={`${Math.min(srRate, 100) * 2.64} 264`} />
+                      </svg>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-sm font-black" style={{ color: srColor }}>{srRate.toFixed(0)}%</span>
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Savings Rate</h3>
+                      <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>{fmt(srTotal)}/mo of {fmt(monthlyIncome)} income</p>
+                      <p className={`text-[10px] mt-0.5 ${srRate >= 20 ? 'text-emerald-500' : srRate >= 10 ? 'text-amber-500' : 'text-rose-500'}`}>
+                        {srRate >= 20 ? 'On track (20%+ target)' : `Need ${fmt(monthlyIncome * 0.2 - srTotal)} more/mo for 20%`}
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })()}
+
             {/* Budget Pie (clickable) + Expense Bar */}
+            {isWidgetEnabled("budgetChart") && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
                 <h2 className="text-sm font-semibold text-gray-700 mb-1">Monthly Budget Breakdown</h2>
@@ -4653,8 +5029,39 @@ The user's current financial data:
                 )}
               </Card>
             </div>
+            )}
+
+            {/* Spending by Category */}
+            {isWidgetEnabled("spendingChart") && (
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Spending by Category</h2>
+              {expByCategory.length === 0 ? (
+                <EmptyState icon={DollarSign} message="No spending this month" />
+              ) : (
+                <div className="space-y-2">
+                  {expByCategory.map((cat, idx) => {
+                    const maxVal = expByCategory[0].value;
+                    const barWidth = (cat.value / maxVal) * 100;
+                    return (
+                      <div key={cat.name} className="flex items-center gap-2">
+                        <span className={`text-xs font-medium w-20 truncate ${dm('text-gray-600', 'text-gray-400')}`}>{cat.name}</span>
+                        <div className={`flex-1 h-5 rounded-full ${dm('bg-gray-100', 'bg-slate-700/50')}`}>
+                          <div className="h-full rounded-full transition-all" style={{
+                            width: `${barWidth}%`,
+                            backgroundColor: COLORS[idx % COLORS.length]
+                          }} />
+                        </div>
+                        <span className={`text-xs font-bold w-16 text-right ${dm('text-gray-700', 'text-gray-300')}`}>{fmt(cat.value)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+            )}
 
             {/* Upcoming Bills Calendar */}
+            {isWidgetEnabled("upcomingBills") && (
             <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
               <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
                 <Bell size={15} className="text-amber-500" /> Upcoming Bills — {monthLabel(viewYear, viewMonth)}
@@ -4698,6 +5105,62 @@ The user's current financial data:
                 </div>
               )}
             </Card>
+            )}
+
+            {/* Debt Progress */}
+            {isWidgetEnabled("debtProgress") && (
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Debt Progress</h2>
+              {debts.length === 0 ? (
+                <EmptyState icon={CreditCard} message="No debts to track" />
+              ) : (
+                <div className="space-y-3">
+                  {debts.map((d) => {
+                    const progress = ((d.balance > 0 ? Math.max(0, 1 - (d.balance / (d.balance + (d.extraPayment || 0) * 12))) : 1) * 100) || 0;
+                    return (
+                      <div key={d.id} className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className={`text-xs font-medium ${dm('text-gray-600', 'text-gray-400')}`}>{d.name}</span>
+                          <span className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{fmt(d.balance)} remaining</span>
+                        </div>
+                        <div className={`w-full h-2 rounded-full ${dm('bg-gray-100', 'bg-slate-700/50')} overflow-hidden`}>
+                          <div className="h-full rounded-full bg-gradient-to-r from-rose-400 to-rose-600 transition-all" style={{ width: `${Math.min(100, 100 - progress)}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+            )}
+
+            {/* Health Score */}
+            {isWidgetEnabled("healthScore") && (
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <h2 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-2">
+                <Heart size={15} className="text-rose-500" /> Financial Health
+              </h2>
+              {healthScores.scores.length > 0 ? (
+                <div className="space-y-2">
+                  {healthScores.scores.slice(0, 3).map((score) => {
+                    const barWidth = (score.score / score.max) * 100;
+                    return (
+                      <div key={score.label} className="flex items-center gap-2">
+                        <span className={`text-xs font-medium w-20 ${dm('text-gray-600', 'text-gray-400')}`}>{score.label}</span>
+                        <div className={`flex-1 h-3 rounded-full ${dm('bg-gray-100', 'bg-slate-700/50')}`}>
+                          <div className="h-full rounded-full transition-all" style={{
+                            width: `${barWidth}%`,
+                            backgroundColor: score.color === 'emerald' ? '#10b981' : score.color === 'amber' ? '#f59e0b' : '#f43f5e'
+                          }} />
+                        </div>
+                        <span className={`text-xs font-bold ${dm('text-gray-700', 'text-gray-300')}`}>{score.score}/{score.max}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </Card>
+            )}
 
             {/* Cash Flow Timeline */}
             <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
@@ -4876,14 +5339,14 @@ The user's current financial data:
                     setRolloverOverrides({ ...rolloverOverrides, [vKey]: Math.round(val * 100) / 100 });
                   }
                   setEditingRollover(false);
-                }} className="p-1 rounded-lg bg-indigo-500 text-white hover:bg-indigo-600 transition"><Check size={14} /></button>
+                }} className="p-2 rounded-lg bg-indigo-500 text-white hover:bg-indigo-600 transition min-w-[36px] min-h-[36px] flex items-center justify-center"><Check size={16} /></button>
                 <button onClick={() => {
                   const updated = { ...rolloverOverrides };
                   delete updated[vKey];
                   setRolloverOverrides(updated);
                   setEditingRollover(false);
-                }} className={`p-1 rounded-lg ${dm("bg-gray-200 text-gray-600 hover:bg-gray-300", "bg-gray-700 text-gray-300 hover:bg-gray-600")} transition text-xs`}>Reset</button>
-                <button onClick={() => setEditingRollover(false)} className={`p-1 rounded-lg ${dm("text-gray-400 hover:text-gray-600", "text-gray-500 hover:text-gray-300")} transition`}><X size={14} /></button>
+                }} className={`px-2 py-1.5 rounded-lg ${dm("bg-gray-200 text-gray-600 hover:bg-gray-300", "bg-gray-700 text-gray-300 hover:bg-gray-600")} transition text-xs min-h-[36px] flex items-center`}>Reset</button>
+                <button onClick={() => setEditingRollover(false)} className={`p-2 rounded-lg ${dm("text-gray-400 hover:text-gray-600", "text-gray-500 hover:text-gray-300")} transition min-w-[36px] min-h-[36px] flex items-center justify-center`}><X size={16} /></button>
               </div>
             )}
 
@@ -4899,12 +5362,18 @@ The user's current financial data:
               </button>
             </div>
 
-            {/* Clear month button — only for past months */}
+            {/* Clear month button — only for past months, prominently displayed */}
             {(viewYear < today.getFullYear() || (viewYear === today.getFullYear() && viewMonth < today.getMonth())) && (
-              <button onClick={() => clearMonthData(vKey)}
-                className={`w-full flex items-center justify-center gap-1.5 text-xs font-medium py-2 rounded-xl border transition ${dm('border-gray-200 text-gray-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600', 'border-slate-700 text-slate-400 hover:bg-red-900/20 hover:border-red-800 hover:text-red-400')}`}>
-                <Trash2 size={13} /> Clear This Month's Data
-              </button>
+              <div className={`rounded-xl border-2 border-dashed p-3 flex items-center justify-between ${dm('border-red-200 bg-red-50/50', 'border-red-800 bg-red-950/20')}`}>
+                <div className="flex items-center gap-2">
+                  <AlertCircle size={16} className={dm('text-red-400', 'text-red-500')} />
+                  <span className={`text-xs font-medium ${dm('text-red-600', 'text-red-400')}`}>Past month — clear data if unused</span>
+                </div>
+                <button onClick={() => clearMonthData(vKey)}
+                  className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition ${dm('bg-red-100 text-red-700 hover:bg-red-200', 'bg-red-900/40 text-red-300 hover:bg-red-900/60')}`}>
+                  <Trash2 size={13} /> Clear Month
+                </button>
+              </div>
             )}
 
             {/* Add item form */}
@@ -4914,16 +5383,13 @@ The user's current financial data:
                   <input placeholder={plannerDraft.type === "income" ? "Income label" : "Expense label"}
                     value={plannerDraft.label} onChange={(e) => setPlannerDraft({ ...plannerDraft, label: e.target.value })}
                     className="flex-1 min-w-[120px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" autoFocus />
-                  <div className="relative w-28">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                    <input type="number" placeholder="Amount" value={plannerDraft.amount}
-                      onChange={(e) => setPlannerDraft({ ...plannerDraft, amount: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && plannerDraft.label && plannerDraft.amount) addPlannerItem({ ...plannerDraft, amount: +plannerDraft.amount, paid: false });
-                        if (e.key === "Escape") setPlannerDraft(null);
-                      }}
-                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                  </div>
+                  <CurrencyInput placeholder="Amount" value={plannerDraft.amount}
+                    onChange={(e) => setPlannerDraft({ ...plannerDraft, amount: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && plannerDraft.label && plannerDraft.amount) addPlannerItem({ ...plannerDraft, amount: +plannerDraft.amount, paid: false });
+                      if (e.key === "Escape") setPlannerDraft(null);
+                    }}
+                    className="w-28" />
                   <select value={plannerDraft.dueDay || ""}
                     onChange={(e) => setPlannerDraft({ ...plannerDraft, dueDay: e.target.value ? parseInt(e.target.value) : "" })}
                     className={`w-24 px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${!plannerDraft.dueDay ? 'text-gray-400' : 'text-gray-700'}`}>
@@ -5022,13 +5488,18 @@ The user's current financial data:
                           onDragLeave={() => { if (dragOverItemId === item.id) setDragOverItemId(null); }}
                         >
                           {/* Drag handle — desktop HTML5 drag + iOS/Android touch drag */}
-                          <div className="flex-shrink-0 touch-none select-none"
+                          <div className="flex-shrink-0 select-none"
+                            style={{ touchAction: "none", WebkitUserSelect: "none", userSelect: "none" }}
                             draggable
                             onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.id); setDraggedItemId(item.id); }}
                             onDragEnd={() => { if (draggedItemId && dragOverItemId && draggedItemId !== dragOverItemId) reorderPlannerItem(draggedItemId, dragOverItemId); else { setDraggedItemId(null); setDragOverItemId(null); } }}
-                            ref={(el) => { if (el) setupTouchDrag(el, item.id); }}
+                            onTouchStart={(e) => handleTouchDragStart(e, item.id)}
+                            onTouchMove={handleTouchDragMove}
+                            onTouchEnd={handleTouchDragEnd}
                           >
-                            <GripVertical size={14} className={`cursor-grab active:cursor-grabbing ${dragOverItemId === item.id ? 'text-indigo-500' : draggedItemId === item.id ? 'text-indigo-400' : 'text-gray-300'}`} />
+                            <div className="p-1.5 -m-1.5">
+                              <GripVertical size={16} className={`cursor-grab active:cursor-grabbing ${dragOverItemId === item.id ? 'text-indigo-500' : draggedItemId === item.id ? 'text-indigo-400' : 'text-gray-400'}`} />
+                            </div>
                           </div>
                           {/* Clickable paid toggle */}
                           <button onClick={() => togglePlannerPaid(item.id)} className="flex-shrink-0 transition-transform hover:scale-110 active:scale-95" title={item.paid ? "Mark unpaid" : "Mark paid"}>
@@ -5071,8 +5542,8 @@ The user's current financial data:
                                   placeholder="Add a note..."
                                   className="flex-1 px-2 py-1 border border-gray-200 rounded text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
                                 />
-                                <button onClick={() => savePlannerNote(item.id)} className="px-2 py-1 bg-amber-500 text-white rounded text-xs font-medium hover:bg-amber-600"><Check size={12} /></button>
-                                <button onClick={cancelPlannerNote} className="px-2 py-1 bg-gray-300 text-gray-700 rounded text-xs font-medium hover:bg-gray-400"><X size={12} /></button>
+                                <button onClick={() => savePlannerNote(item.id)} className="px-2.5 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600 min-w-[36px] min-h-[36px] flex items-center justify-center"><Check size={14} /></button>
+                                <button onClick={cancelPlannerNote} className="px-2.5 py-1.5 bg-gray-300 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-400 min-w-[36px] min-h-[36px] flex items-center justify-center"><X size={14} /></button>
                               </div>
                             ) : (
                               (plannerNotesByMonth[vKey] || {})[item.id] && (
@@ -5201,11 +5672,7 @@ The user's current financial data:
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <input placeholder="Bill name" value={billDraft.name} onChange={(e) => setBillDraft({ ...billDraft, name: e.target.value })}
                     className="col-span-2 sm:col-span-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                    <input type="number" placeholder="Amount" value={billDraft.amount} onChange={(e) => setBillDraft({ ...billDraft, amount: e.target.value })}
-                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                  </div>
+                  <CurrencyInput placeholder="Amount" value={billDraft.amount} onChange={(e) => setBillDraft({ ...billDraft, amount: e.target.value })} />
                   <input type="number" min="1" max="31" placeholder="Due day" value={billDraft.dueDay} onChange={(e) => setBillDraft({ ...billDraft, dueDay: +e.target.value })}
                     className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                   <select value={billDraft.category} onChange={(e) => setBillDraft({ ...billDraft, category: e.target.value })}
@@ -5345,26 +5812,76 @@ The user's current financial data:
               </button>
             </div>
 
+            {/* Savings Rate Calculator */}
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3 flex items-center gap-2`}>
+                <Target size={16} className="text-indigo-500" /> Savings Rate
+              </h3>
+              {(() => {
+                const savingsTotal = goals.reduce((s, g) => s + g.monthlyContribution, 0);
+                const rate = monthlyIncome > 0 ? (savingsTotal / monthlyIncome) * 100 : 0;
+                const rateColor = rate >= 20 ? 'emerald' : rate >= 10 ? 'amber' : 'rose';
+                const colorHex = rate >= 20 ? '#10b981' : rate >= 10 ? '#f59e0b' : '#f43f5e';
+                return (
+                  <div className="space-y-4">
+                    {/* Circular Gauge */}
+                    <div className="flex items-center gap-6">
+                      <div className="relative w-24 h-24 flex-shrink-0">
+                        <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                          <circle cx="50" cy="50" r="42" fill="none" stroke={darkMode ? '#1e293b' : '#f1f5f9'} strokeWidth="10" />
+                          <circle cx="50" cy="50" r="42" fill="none" stroke={colorHex} strokeWidth="10"
+                            strokeLinecap="round" strokeDasharray={`${Math.min(rate, 100) * 2.64} 264`} />
+                        </svg>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                          <span className={`text-xl font-black text-${rateColor}-500`}>{rate.toFixed(1)}%</span>
+                        </div>
+                      </div>
+                      <div className="flex-1 space-y-2">
+                        <div className="flex justify-between text-xs">
+                          <span className={dm('text-gray-500', 'text-gray-400')}>Monthly Savings</span>
+                          <span className={`font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{fmt(savingsTotal)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className={dm('text-gray-500', 'text-gray-400')}>Monthly Income</span>
+                          <span className={`font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{fmt(monthlyIncome)}</span>
+                        </div>
+                        <div className={`h-px ${dm('bg-gray-100', 'bg-slate-700')}`} />
+                        <div className="flex justify-between text-xs">
+                          <span className={dm('text-gray-500', 'text-gray-400')}>Target (20%)</span>
+                          <span className={`font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{fmt(monthlyIncome * 0.2)}</span>
+                        </div>
+                        {rate < 20 && (
+                          <p className={`text-[10px] ${dm('text-gray-400', 'text-gray-500')}`}>
+                            Increase savings by {fmt(monthlyIncome * 0.2 - savingsTotal)}/mo to reach 20%
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {/* Breakdown */}
+                    {goals.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className={`text-[10px] font-semibold uppercase tracking-wider ${dm('text-gray-400', 'text-gray-500')}`}>Breakdown</p>
+                        {goals.filter(g => g.monthlyContribution > 0).map(g => (
+                          <div key={g.id} className={`flex items-center justify-between text-xs px-2 py-1.5 rounded-lg ${dm('bg-gray-50', 'bg-slate-700/50')}`}>
+                            <span className={dm('text-gray-600', 'text-gray-300')}>{g.name}</span>
+                            <span className={`font-medium ${dm('text-gray-800', 'text-gray-200')}`}>{fmt(g.monthlyContribution)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </Card>
+
             {goalDraft && (
               <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="border-indigo-200 bg-indigo-50/30">
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <input placeholder="Goal name" value={goalDraft.name} onChange={(e) => setGoalDraft({ ...goalDraft, name: e.target.value })}
                     className="col-span-2 sm:col-span-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                    <input type="number" placeholder="Target" value={goalDraft.target} onChange={(e) => setGoalDraft({ ...goalDraft, target: e.target.value })}
-                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                    <input type="number" placeholder="Saved so far" value={goalDraft.saved} onChange={(e) => setGoalDraft({ ...goalDraft, saved: e.target.value })}
-                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                    <input type="number" placeholder="Monthly" value={goalDraft.monthlyContribution} onChange={(e) => setGoalDraft({ ...goalDraft, monthlyContribution: e.target.value })}
-                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                  </div>
+                  <CurrencyInput placeholder="Target" value={goalDraft.target} onChange={(e) => setGoalDraft({ ...goalDraft, target: e.target.value })} />
+                  <CurrencyInput placeholder="Saved so far" value={goalDraft.saved} onChange={(e) => setGoalDraft({ ...goalDraft, saved: e.target.value })} />
+                  <CurrencyInput placeholder="Monthly" value={goalDraft.monthlyContribution} onChange={(e) => setGoalDraft({ ...goalDraft, monthlyContribution: e.target.value })} />
                   <div className="flex gap-2">
                     <button onClick={() => { if (goalDraft.name && goalDraft.target) { const g = { ...goalDraft, target: +goalDraft.target, saved: +goalDraft.saved || 0, monthlyContribution: +goalDraft.monthlyContribution || 0 }; if (editingGoalId) updateGoal(editingGoalId, g); else addGoal(g); } }}
                       className="flex-1 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1"><Check size={14} /> {editingGoalId ? 'Update' : 'Save'}</button>
@@ -5795,11 +6312,7 @@ The user's current financial data:
                       className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                     <input placeholder="Merchant (optional)" value={expDraft.merchant || ""} onChange={(e) => setExpDraft({ ...expDraft, merchant: e.target.value })}
                       className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                      <input type="number" placeholder="Amount" value={expDraft.amount} onChange={(e) => setExpDraft({ ...expDraft, amount: e.target.value })}
-                        className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                    </div>
+                    <CurrencyInput placeholder="Amount" value={expDraft.amount} onChange={(e) => setExpDraft({ ...expDraft, amount: e.target.value })} />
                     <select value={expDraft.category} onChange={(e) => {
                       const cat = e.target.value;
                       setExpDraft({ ...expDraft, category: cat, goalId: cat === "Savings" ? (goals[0]?.id || "") : "", description: cat === "Savings" && !expDraft.description ? (goals[0]?.name || "") + " contribution" : expDraft.description });
@@ -5899,6 +6412,15 @@ The user's current financial data:
                               </p>
                             </div>
                             <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} flex-shrink-0`}>{fmt(e.amount)}</span>
+                            {receiptLibrary[e.id] ? (
+                              <button onClick={() => setReceiptViewId(e.id)} className="text-emerald-500 hover:text-emerald-600 flex-shrink-0">
+                                <CheckCircle size={16} />
+                              </button>
+                            ) : (
+                              <button onClick={() => attachReceipt(e.id)} className={`${dm('text-gray-300 hover:text-gray-400', 'text-gray-600 hover:text-gray-500')} flex-shrink-0 transition`}>
+                                <Upload size={16} />
+                              </button>
+                            )}
                           </div>
                         </SwipeRow>
                       ) : (
@@ -5917,6 +6439,15 @@ The user's current financial data:
                             </p>
                           </div>
                           <span className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} flex-shrink-0`}>{fmt(e.amount)}</span>
+                          {receiptLibrary[e.id] ? (
+                            <button onClick={() => setReceiptViewId(e.id)} className="text-emerald-500 hover:text-emerald-600 flex-shrink-0">
+                              <CheckCircle size={16} />
+                            </button>
+                          ) : (
+                            <button onClick={() => attachReceipt(e.id)} className={`${dm('text-gray-300 hover:text-gray-400', 'text-gray-600 hover:text-gray-500')} flex-shrink-0 transition`}>
+                              <Upload size={16} />
+                            </button>
+                          )}
                         </div>
                       );
                     })}
@@ -6010,17 +6541,9 @@ The user's current financial data:
                   </select>
                   <input placeholder="Debt name" value={debtDraft.name} onChange={(e) => setDebtDraft({ ...debtDraft, name: e.target.value })}
                     className={`col-span-2 sm:col-span-3 px-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                    <input type="number" placeholder="Balance" value={debtDraft.balance} onChange={(e) => setDebtDraft({ ...debtDraft, balance: e.target.value })}
-                      className={`w-full pl-7 pr-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
-                  </div>
+                  <CurrencyInput placeholder="Balance" value={debtDraft.balance} onChange={(e) => setDebtDraft({ ...debtDraft, balance: e.target.value })} darkMode={darkMode} />
                   {(debtDraft.debtType === 'credit_card' || debtDraft.debtType === 'line_of_credit') && (
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                      <input type="number" placeholder="Credit limit" value={debtDraft.creditLimit} onChange={(e) => setDebtDraft({ ...debtDraft, creditLimit: e.target.value })}
-                        className={`w-full pl-7 pr-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
-                    </div>
+                    <CurrencyInput placeholder="Credit limit" value={debtDraft.creditLimit} onChange={(e) => setDebtDraft({ ...debtDraft, creditLimit: e.target.value })} darkMode={darkMode} />
                   )}
                   {/* Collections: payment plan toggle */}
                   {debtDraft.debtType === 'collections' && (
@@ -6046,16 +6569,8 @@ The user's current financial data:
                   {/* Payment fields — show for non-collections OR collections with payment plan */}
                   {(debtDraft.debtType !== 'collections' || debtDraft.hasPaymentPlan) && (
                     <>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                        <input type="number" placeholder="Min payment" value={debtDraft.minPayment} onChange={(e) => setDebtDraft({ ...debtDraft, minPayment: e.target.value })}
-                          className={`w-full pl-7 pr-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
-                      </div>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                        <input type="number" placeholder="Extra payment" value={debtDraft.extraPayment} onChange={(e) => setDebtDraft({ ...debtDraft, extraPayment: e.target.value })}
-                          className={`w-full pl-7 pr-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`} />
-                      </div>
+                      <CurrencyInput placeholder="Min payment" value={debtDraft.minPayment} onChange={(e) => setDebtDraft({ ...debtDraft, minPayment: e.target.value })} darkMode={darkMode} />
+                      <CurrencyInput placeholder="Extra payment" value={debtDraft.extraPayment} onChange={(e) => setDebtDraft({ ...debtDraft, extraPayment: e.target.value })} darkMode={darkMode} />
                       <select value={debtDraft.frequency || "monthly"} onChange={(e) => setDebtDraft({ ...debtDraft, frequency: e.target.value })}
                         className={`px-3 py-2 border rounded-lg text-sm ${dm('border-gray-200', 'bg-slate-700 border-slate-600 text-white')} focus:outline-none focus:ring-2 focus:ring-indigo-500`}>
                         <option value="monthly">Monthly</option>
@@ -6087,7 +6602,7 @@ The user's current financial data:
 
             {/* Credit Card & Line of Credit Overview */}
             {(() => {
-              const creditDebts = debts.filter(d => d.debtType === 'credit_card' || d.debtType === 'line_of_credit');
+              const creditDebts = debts.filter(isCreditDebt);
               if (creditDebts.length === 0) return null;
               const totalCreditUsed = creditDebts.reduce((s, d) => s + d.balance, 0);
               const totalCreditLimit = creditDebts.reduce((s, d) => s + (d.creditLimit || 0), 0);
@@ -6205,7 +6720,7 @@ The user's current financial data:
             {debtTimelines.length === 0 ? <EmptyState icon={CreditCard} message="No debts tracked — add one!" /> : (
               <div className="space-y-4">
                 {debtTimelines.map((d) => {
-                  const isCreditType = d.debtType === 'credit_card' || d.debtType === 'line_of_credit';
+                  const isCreditType = isCreditDebt(d);
                   const cardUtil = isCreditType && d.creditLimit > 0 ? Math.round((d.balance / d.creditLimit) * 100) : 0;
                   const typeLabel = d.debtType === 'credit_card' ? 'Credit Card' : d.debtType === 'line_of_credit' ? 'Line of Credit' : d.debtType === 'collections' ? 'Collections' : 'Loan';
                   return (
@@ -6371,7 +6886,7 @@ The user's current financial data:
                   {debts.map((d) => {
                     const monthlyRate = d.rate / 100 / 12;
                     const mult = freqMultiplier(d.frequency);
-                    const basePay = (d.minPayment + d.extraPayment) * mult;
+                    const basePay = (getDebtPayment(d)) * mult;
                     const boostPay = basePay + simExtraPayment;
                     const calc = (pay) => {
                       if (pay <= 0) return { months: Infinity, interest: Infinity };
@@ -6567,7 +7082,7 @@ The user's current financial data:
 
               {/* Credit utilization auto-calculated with per-card breakdown */}
               {(() => {
-                const creditDebts = debts.filter(d => d.debtType === 'credit_card' || d.debtType === 'line_of_credit');
+                const creditDebts = debts.filter(isCreditDebt);
                 const totalUsed = creditDebts.reduce((s, d) => s + d.balance, 0);
                 const totalLimit = creditDebts.reduce((s, d) => s + (d.creditLimit || 0), 0);
                 const util = totalLimit > 0 ? Math.round((totalUsed / totalLimit) * 100) : 0;
@@ -7262,103 +7777,65 @@ The user's current financial data:
         {tab === "health" && (
           <>
             <h2 className={`text-lg font-bold ${dm('text-gray-900', 'text-white')}`}>Financial Health Score</h2>
-            {(() => {
-              const scores = [];
-              // 1. Emergency fund (0-20)
-              const monthlyExp = bills.reduce((s, b) => s + b.amount, 0) + debts.reduce((s, d) => s + (d.minPayment + d.extraPayment) * freqMultiplier(d.frequency), 0);
-              const emergencyTarget = monthlyExp * 3;
-              const emergencyFund = assets.filter(a => a.category === 'Cash').reduce((s, a) => s + a.balance, 0);
-              const efScore = Math.min(20, Math.round((emergencyFund / Math.max(emergencyTarget, 1)) * 20));
-              scores.push({ label: 'Emergency Fund', score: efScore, max: 20, detail: `${fmt(emergencyFund)} of ${fmt(emergencyTarget)} (3 months)`, color: efScore >= 15 ? 'emerald' : efScore >= 10 ? 'amber' : 'rose' });
+            {/* Score Overview */}
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="text-center">
+              <div className="relative inline-flex items-center justify-center w-36 h-36 mx-auto mb-3">
+                <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="42" fill="none" stroke={darkMode ? '#1e293b' : '#f1f5f9'} strokeWidth="8" />
+                  <circle cx="50" cy="50" r="42" fill="none" stroke={healthScores.totalScore >= 85 ? '#10b981' : healthScores.totalScore >= 70 ? '#06b6d4' : healthScores.totalScore >= 55 ? '#f59e0b' : '#f43f5e'} strokeWidth="8"
+                    strokeLinecap="round" strokeDasharray={`${healthScores.totalScore * 2.64} 264`} />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className={`text-4xl font-black ${healthScores.gradeColor}`}>{healthScores.grade}</span>
+                  <span className={`text-sm font-medium ${dm('text-gray-600', 'text-gray-400')}`}>{healthScores.totalScore}/100</span>
+                </div>
+              </div>
+              <p className={`text-sm ${dm('text-gray-600', 'text-gray-400')}`}>
+                {healthScores.totalScore >= 85 ? 'Excellent! Your finances are in great shape.' : healthScores.totalScore >= 70 ? 'Good — a few areas could use attention.' : healthScores.totalScore >= 55 ? 'Fair — there\'s room for improvement.' : 'Needs work — let\'s build a stronger foundation.'}
+              </p>
+            </Card>
 
-              // 2. Debt-to-income (0-20)
-              const dti = monthlyIncome > 0 ? (debts.reduce((s, d) => s + (d.minPayment + d.extraPayment) * freqMultiplier(d.frequency), 0)) / monthlyIncome : 1;
-              const dtiScore = dti <= 0.1 ? 20 : dti <= 0.2 ? 16 : dti <= 0.36 ? 12 : dti <= 0.5 ? 6 : 0;
-              scores.push({ label: 'Debt-to-Income', score: dtiScore, max: 20, detail: `${Math.round(dti * 100)}% DTI ratio`, color: dtiScore >= 15 ? 'emerald' : dtiScore >= 10 ? 'amber' : 'rose' });
-
-              // 3. Savings rate (0-20)
-              const savingsRate = monthlyIncome > 0 ? goals.reduce((s, g) => s + g.monthlyContribution, 0) / monthlyIncome : 0;
-              const srScore = savingsRate >= 0.2 ? 20 : savingsRate >= 0.15 ? 16 : savingsRate >= 0.1 ? 12 : savingsRate >= 0.05 ? 6 : 0;
-              scores.push({ label: 'Savings Rate', score: srScore, max: 20, detail: `${Math.round(savingsRate * 100)}% of income`, color: srScore >= 15 ? 'emerald' : srScore >= 10 ? 'amber' : 'rose' });
-
-              // 4. Bill coverage (0-20)
-              const billCoverage = monthlyIncome > 0 ? bills.reduce((s, b) => s + b.amount, 0) / monthlyIncome : 1;
-              const bcScore = billCoverage <= 0.3 ? 20 : billCoverage <= 0.4 ? 16 : billCoverage <= 0.5 ? 12 : billCoverage <= 0.6 ? 6 : 0;
-              scores.push({ label: 'Bills to Income', score: bcScore, max: 20, detail: `${Math.round(billCoverage * 100)}% of income`, color: bcScore >= 15 ? 'emerald' : bcScore >= 10 ? 'amber' : 'rose' });
-
-              // 5. Net worth trend (0-20)
-              const nwPositive = netWorth > 0;
-              const nwScore = nwPositive ? (netWorthHistory.length >= 2 && netWorthHistory[netWorthHistory.length - 1].netWorth > netWorthHistory[netWorthHistory.length - 2].netWorth ? 20 : 14) : 0;
-              scores.push({ label: 'Net Worth', score: nwScore, max: 20, detail: nwPositive ? `${fmt(netWorth)} positive` : 'Negative net worth', color: nwScore >= 15 ? 'emerald' : nwScore >= 10 ? 'amber' : 'rose' });
-
-              const totalScore = scores.reduce((s, sc) => s + sc.score, 0);
-              const grade = totalScore >= 85 ? 'A' : totalScore >= 70 ? 'B' : totalScore >= 55 ? 'C' : totalScore >= 40 ? 'D' : 'F';
-              const gradeColor = totalScore >= 85 ? 'text-emerald-500' : totalScore >= 70 ? 'text-cyan-500' : totalScore >= 55 ? 'text-amber-500' : 'text-rose-500';
-
-              return (
-                <>
-                  {/* Score Overview */}
-                  <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} className="text-center">
-                    <div className="relative inline-flex items-center justify-center w-36 h-36 mx-auto mb-3">
-                      <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-                        <circle cx="50" cy="50" r="42" fill="none" stroke={darkMode ? '#1e293b' : '#f1f5f9'} strokeWidth="8" />
-                        <circle cx="50" cy="50" r="42" fill="none" stroke={totalScore >= 85 ? '#10b981' : totalScore >= 70 ? '#06b6d4' : totalScore >= 55 ? '#f59e0b' : '#f43f5e'} strokeWidth="8"
-                          strokeLinecap="round" strokeDasharray={`${totalScore * 2.64} 264`} />
-                      </svg>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className={`text-4xl font-black ${gradeColor}`}>{grade}</span>
-                        <span className={`text-sm font-medium ${dm('text-gray-600', 'text-gray-400')}`}>{totalScore}/100</span>
+            {/* Score Breakdown */}
+            <div className="space-y-3">
+              {healthScores.scores.map((sc) => {
+                const colorMap = { emerald: { bg: dm('bg-emerald-950/30', 'bg-emerald-50'), text: 'text-emerald-500', bar: '#10b981' }, amber: { bg: dm('bg-amber-950/30', 'bg-amber-50'), text: 'text-amber-500', bar: '#f59e0b' }, rose: { bg: dm('bg-rose-950/30', 'bg-rose-50'), text: 'text-rose-500', bar: '#f43f5e' } };
+                const c = colorMap[sc.color];
+                return (
+                  <Card key={sc.label} darkMode={darkMode}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <h4 className={`text-sm font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{sc.label}</h4>
+                        <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>{sc.detail}</p>
                       </div>
+                      <span className={`text-lg font-black ${c.text}`}>{sc.score}/{sc.max}</span>
                     </div>
-                    <p className={`text-sm ${dm('text-gray-600', 'text-gray-400')}`}>
-                      {totalScore >= 85 ? 'Excellent! Your finances are in great shape.' : totalScore >= 70 ? 'Good — a few areas could use attention.' : totalScore >= 55 ? 'Fair — there\'s room for improvement.' : 'Needs work — let\'s build a stronger foundation.'}
+                    <ProgressBar value={sc.score} max={sc.max} color={c.bar} height={8} />
+                  </Card>
+                );
+              })}
+            </div>
+
+            {/* Tips */}
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3 flex items-center gap-2`}><Shield size={16} className="text-indigo-500" /> Improvement Tips</h3>
+              <div className="space-y-2">
+                {healthScores.scores.filter(sc => sc.score < sc.max * 0.75).map(sc => (
+                  <div key={sc.label} className={`p-3 rounded-lg ${dm('bg-gray-50', 'bg-slate-700/50')}`}>
+                    <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')}`}>{sc.label}</p>
+                    <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')} mt-0.5`}>
+                      {sc.label === 'Emergency Fund' && 'Build up 3-6 months of expenses in a savings account.'}
+                      {sc.label === 'Debt-to-Income' && 'Focus on paying down debt — consider the avalanche method.'}
+                      {sc.label === 'Savings Rate' && 'Aim to save at least 20% of your income each month.'}
+                      {sc.label === 'Bills to Income' && 'Look for ways to reduce fixed costs — renegotiate or switch providers.'}
+                      {sc.label === 'Net Worth' && 'Keep tracking and growing assets while reducing liabilities.'}
                     </p>
-                  </Card>
-
-                  {/* Score Breakdown */}
-                  <div className="space-y-3">
-                    {scores.map((sc) => {
-                      const colorMap = { emerald: { bg: dm('bg-emerald-950/30', 'bg-emerald-50'), text: 'text-emerald-500', bar: '#10b981' }, amber: { bg: dm('bg-amber-950/30', 'bg-amber-50'), text: 'text-amber-500', bar: '#f59e0b' }, rose: { bg: dm('bg-rose-950/30', 'bg-rose-50'), text: 'text-rose-500', bar: '#f43f5e' } };
-                      const c = colorMap[sc.color];
-                      return (
-                        <Card key={sc.label} darkMode={darkMode}>
-                          <div className="flex items-center justify-between mb-2">
-                            <div>
-                              <h4 className={`text-sm font-semibold ${dm('text-gray-800', 'text-gray-200')}`}>{sc.label}</h4>
-                              <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')}`}>{sc.detail}</p>
-                            </div>
-                            <span className={`text-lg font-black ${c.text}`}>{sc.score}/{sc.max}</span>
-                          </div>
-                          <ProgressBar value={sc.score} max={sc.max} color={c.bar} height={8} />
-                        </Card>
-                      );
-                    })}
                   </div>
-
-                  {/* Tips */}
-                  <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
-                    <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3 flex items-center gap-2`}><Shield size={16} className="text-indigo-500" /> Improvement Tips</h3>
-                    <div className="space-y-2">
-                      {scores.filter(sc => sc.score < sc.max * 0.75).map(sc => (
-                        <div key={sc.label} className={`p-3 rounded-lg ${dm('bg-gray-50', 'bg-slate-700/50')}`}>
-                          <p className={`text-sm font-medium ${dm('text-gray-800', 'text-gray-200')}`}>{sc.label}</p>
-                          <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')} mt-0.5`}>
-                            {sc.label === 'Emergency Fund' && 'Build up 3-6 months of expenses in a savings account.'}
-                            {sc.label === 'Debt-to-Income' && 'Focus on paying down debt — consider the avalanche method.'}
-                            {sc.label === 'Savings Rate' && 'Aim to save at least 20% of your income each month.'}
-                            {sc.label === 'Bills to Income' && 'Look for ways to reduce fixed costs — renegotiate or switch providers.'}
-                            {sc.label === 'Net Worth' && 'Keep tracking and growing assets while reducing liabilities.'}
-                          </p>
-                        </div>
-                      ))}
-                      {scores.every(sc => sc.score >= sc.max * 0.75) && (
-                        <p className={`text-sm text-center py-4 ${dm('text-emerald-600', 'text-emerald-400')} font-medium`}>You're doing great across the board! Keep it up.</p>
-                      )}
-                    </div>
-                  </Card>
-                </>
-              );
-            })()}
+                ))}
+                {healthScores.scores.every(sc => sc.score >= sc.max * 0.75) && (
+                  <p className={`text-sm text-center py-4 ${dm('text-emerald-600', 'text-emerald-400')} font-medium`}>You're doing great across the board! Keep it up.</p>
+                )}
+              </div>
+            </Card>
           </>
         )}
 
@@ -7737,16 +8214,10 @@ The user's current financial data:
         {tab === "subscriptions" && (() => {
           const activeSubs = subscriptions.filter(s => s.active);
           const pausedSubs = subscriptions.filter(s => !s.active);
-          const monthlyTotal = activeSubs.reduce((sum, s) => {
-            if (s.frequency === "monthly") return sum + s.amount;
-            if (s.frequency === "yearly") return sum + s.amount / 12;
-            if (s.frequency === "weekly") return sum + s.amount * 4.33;
-            if (s.frequency === "quarterly") return sum + s.amount / 3;
-            return sum + s.amount;
-          }, 0);
+          const monthlyTotal = activeSubs.reduce((sum, s) => sum + normalizeToMonthly(s.amount, s.frequency), 0);
           const yearlyTotal = monthlyTotal * 12;
           const byCat = {};
-          activeSubs.forEach(s => { byCat[s.category] = (byCat[s.category] || 0) + (s.frequency === "monthly" ? s.amount : s.frequency === "yearly" ? s.amount / 12 : s.frequency === "weekly" ? s.amount * 4.33 : s.frequency === "quarterly" ? s.amount / 3 : s.amount); });
+          activeSubs.forEach(s => { byCat[s.category] = (byCat[s.category] || 0) + normalizeToMonthly(s.amount, s.frequency); });
           const catData = Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([name, value], i) => ({ name, value: Math.round(value * 100) / 100, fill: COLORS[i % COLORS.length] }));
           return (
             <>
@@ -7794,11 +8265,7 @@ The user's current financial data:
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     <input placeholder="Service name" value={subDraft.name} onChange={(e) => setSubDraft({ ...subDraft, name: e.target.value })}
                       className="col-span-2 sm:col-span-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                      <input type="number" placeholder="Amount" value={subDraft.amount} onChange={(e) => setSubDraft({ ...subDraft, amount: e.target.value })}
-                        className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
-                    </div>
+                    <CurrencyInput placeholder="Amount" value={subDraft.amount} onChange={(e) => setSubDraft({ ...subDraft, amount: e.target.value })} className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
                     <select value={subDraft.frequency} onChange={(e) => setSubDraft({ ...subDraft, frequency: e.target.value })}
                       className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white">
                       <option value="monthly">Monthly</option>
@@ -7897,7 +8364,7 @@ The user's current financial data:
               <h3 className={`text-sm font-bold ${dm('text-gray-800', 'text-gray-200')} mb-3`}>Monthly Report Card</h3>
               {(() => {
                 const subs = Array.isArray(subscriptions) ? subscriptions : [];
-                const subsCost = subs.filter(s => s && s.active).reduce((sum, s) => sum + (s.frequency === 'yearly' ? (s.amount || 0) / 12 : s.frequency === 'weekly' ? (s.amount || 0) * 4.33 : s.frequency === 'quarterly' ? (s.amount || 0) / 3 : (s.amount || 0)), 0);
+                const subsCost = subs.filter(s => s && s.active).reduce((sum, s) => sum + normalizeToMonthly(s.amount || 0, s.frequency), 0);
                 const fixedCosts = totalBills + debts.reduce((s, d) => s + (d.minPayment || 0) + (d.extraPayment || 0), 0) + subsCost;
                 const discretionaryTotal = (manualExpenses || []).reduce((s, e) => s + (e.amount || 0), 0);
                 const savTotal = goals.reduce((s, g) => s + (g.monthlyContribution || 0), 0);
@@ -8082,11 +8549,7 @@ The user's current financial data:
                     <div className="grid grid-cols-2 gap-3">
                       <input placeholder="Item name" value={wishDraft.name} onChange={(e) => setWishDraft({ ...wishDraft, name: e.target.value })}
                         className={`px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${dm('bg-white border-gray-200', 'bg-slate-700 border-slate-600 text-white')}`} />
-                      <div className="relative">
-                        <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm ${dm('text-gray-500', 'text-gray-400')}`}>$</span>
-                        <input type="number" placeholder="Estimated cost" value={wishDraft.cost} onChange={(e) => setWishDraft({ ...wishDraft, cost: e.target.value })}
-                          className={`w-full pl-7 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${dm('bg-white border-gray-200', 'bg-slate-700 border-slate-600 text-white')}`} />
-                      </div>
+                      <CurrencyInput placeholder="Estimated cost" value={wishDraft.cost} onChange={(e) => setWishDraft({ ...wishDraft, cost: e.target.value })} darkMode={darkMode} />
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                       <select value={wishDraft.priority} onChange={(e) => setWishDraft({ ...wishDraft, priority: e.target.value })}
@@ -8204,7 +8667,7 @@ The user's current financial data:
             // Debts
             debts.forEach(d => {
               if (d.dueDay === day) {
-                events.push({ type: 'debt', label: d.name, amount: d.minPayment + d.extraPayment, color: 'orange' });
+                events.push({ type: 'debt', label: d.name, amount: getDebtPayment(d), color: 'orange' });
               }
             });
 
@@ -8230,7 +8693,7 @@ The user's current financial data:
 
           const totalIncome = monthPaychecks.reduce((s, p) => s + p.amount, 0);
           const totalBills = bills.reduce((s, b) => s + b.amount, 0);
-          const totalDebts = debts.reduce((s, d) => s + (d.minPayment + d.extraPayment) * freqMultiplier(d.frequency), 0);
+          const totalDebts = debts.reduce((s, d) => s + (getDebtPayment(d)) * freqMultiplier(d.frequency), 0);
           const netMonth = totalIncome - totalBills - totalDebts;
 
           return (
@@ -8484,6 +8947,74 @@ The user's current financial data:
               </div>
               <p className={`text-xs ${dm('text-gray-400', 'text-gray-500')} mt-3`}>Click any month to jump to it</p>
             </Card>
+
+            {/* ─── FEATURE 4: ANNUAL SUMMARY SECTION ─── */}
+            <div className={`p-4 rounded-xl border-t-4 border-indigo-500 ${dm('bg-indigo-50', 'bg-indigo-950/30')} mb-4`}>
+              <h3 className={`text-sm font-semibold ${dm('text-indigo-900', 'text-indigo-200')} mb-3`}>Annual Summary for {annualYear}</h3>
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={DollarSign} label="Total Earned" value={fmt(annualSummary.totalEarned)} sub="" color="green" />
+                <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={TrendingDown} label="Total Spent" value={fmt(annualSummary.totalSpent)} sub="" color="rose" />
+                <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={PiggyBank} label="Total Saved" value={fmt(annualSummary.totalSaved)} sub="" color="cyan" />
+                <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={CreditCard} label="Debt Paid" value={fmt(annualSummary.totalDebtPaid)} sub="" color="amber" />
+                {annualSummary.nwChange !== null && <StatCard darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""} icon={Heart} label="Net Worth Δ" value={fmt(annualSummary.nwChange)} sub="" color={annualSummary.nwChange >= 0 ? "indigo" : "rose"} />}
+              </div>
+            </div>
+
+            {/* Monthly Income vs Expenses */}
+            <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+              <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Monthly Income vs Expenses - {annualYear}</h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={annualSummary.monthlyData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
+                  <XAxis dataKey="month" fontSize={12} tickLine={false} />
+                  <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} fontSize={11} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(v) => fmt(v)} />
+                  <Legend />
+                  <Bar dataKey="income" name="Income" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="expenses" name="Expenses" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Card>
+
+            {/* Top 5 Spending Categories */}
+            {annualSummary.topCategories.length > 0 && (
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Top 5 Spending Categories - {annualYear}</h3>
+                <div className="space-y-2">
+                  {annualSummary.topCategories.map(([cat, amount], idx) => {
+                    const maxAmount = annualSummary.topCategories[0][1];
+                    const barWidth = (amount / maxAmount) * 100;
+                    return (
+                      <div key={cat} className="flex items-center gap-2">
+                        <span className={`text-xs font-medium w-24 truncate ${dm('text-gray-600', 'text-gray-400')}`}>{cat}</span>
+                        <div className={`flex-1 h-6 rounded-full ${dm('bg-gray-100', 'bg-slate-700/50')} overflow-hidden`}>
+                          <div className={`h-full rounded-full transition-all`} style={{
+                            width: `${barWidth}%`,
+                            backgroundColor: COLORS[idx % COLORS.length]
+                          }} />
+                        </div>
+                        <span className={`text-xs font-bold w-20 text-right ${dm('text-gray-700', 'text-gray-300')}`}>{fmt(amount)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
+
+            {/* Biggest Expense Months */}
+            {annualSummary.biggestMonths.length > 0 && (
+              <Card darkMode={darkMode} themeCard={isThemed ? theme.cardClass : ""}>
+                <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')} mb-3`}>Biggest Expense Months - {annualYear}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {annualSummary.biggestMonths.map((m, idx) => (
+                    <div key={m.month} className={`p-3 rounded-xl border-l-4 ${idx === 0 ? 'border-rose-500 ' + dm('bg-rose-50', 'bg-rose-950/30') : idx === 1 ? 'border-amber-500 ' + dm('bg-amber-50', 'bg-amber-950/30') : 'border-orange-500 ' + dm('bg-orange-50', 'bg-orange-950/30')}`}>
+                      <p className={`text-xs font-medium uppercase ${dm('text-gray-500', 'text-gray-400')} mb-1`}>{m.month}</p>
+                      <p className={`text-lg font-bold ${idx === 0 ? 'text-rose-600' : idx === 1 ? 'text-amber-600' : 'text-orange-600'}`}>{fmt(m.expenses)}</p>
+                      <p className={`text-xs ${dm('text-gray-500', 'text-gray-400')} mt-1`}>Income: {fmt(m.income)}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
           </>
           );
         })()}
@@ -8773,11 +9304,7 @@ The user's current financial data:
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" autoFocus />
             <input placeholder="Merchant (optional)" value={quickAdd.merchant || ""} onChange={(e) => setQuickAdd({ ...quickAdd, merchant: e.target.value })}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-              <input type="number" placeholder="Amount" value={quickAdd.amount} onChange={(e) => setQuickAdd({ ...quickAdd, amount: e.target.value })}
-                className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            </div>
+            <CurrencyInput placeholder="Amount" value={quickAdd.amount} onChange={(e) => setQuickAdd({ ...quickAdd, amount: e.target.value })} />
             <select value={quickAdd.category} onChange={(e) => {
               const cat = e.target.value;
               setQuickAdd({ ...quickAdd, category: cat, goalId: cat === "Savings" ? (goals[0]?.id || "") : "", description: cat === "Savings" && !quickAdd.description ? (goals[0]?.name || "") + " contribution" : quickAdd.description });
@@ -8805,6 +9332,29 @@ The user's current financial data:
             }} className="w-full bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1.5">
               <Check size={14} /> Add Expense
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* FEATURE 6: Receipt View Modal */}
+      {receiptViewId && receiptLibrary[receiptViewId] && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setReceiptViewId(null)}>
+          <div className={`max-w-lg w-full max-h-[80vh] overflow-auto ${dm('bg-white', 'bg-slate-800')} rounded-2xl p-4`} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className={`text-sm font-semibold ${dm('text-gray-700', 'text-gray-200')}`}>Receipt</h3>
+              <div className="flex gap-2">
+                <button onClick={() => removeReceipt(receiptViewId)} className={`text-xs ${dm('text-rose-500 hover:text-rose-700', 'text-rose-400 hover:text-rose-300')} transition`}>Delete</button>
+                <button onClick={() => setReceiptViewId(null)}><X size={16} className={dm('text-gray-600', 'text-gray-400')} /></button>
+              </div>
+            </div>
+            {receiptLibrary[receiptViewId].type === 'application/pdf' ? (
+              <iframe src={receiptLibrary[receiptViewId].data} className="w-full h-96 rounded-lg" />
+            ) : (
+              <img src={receiptLibrary[receiptViewId].data} alt="Receipt" className="w-full rounded-lg" />
+            )}
+            <p className={`text-xs mt-3 ${dm('text-gray-500', 'text-gray-400')}`}>
+              {receiptLibrary[receiptViewId].name} · {(receiptLibrary[receiptViewId].size / 1024).toFixed(0)}KB
+            </p>
           </div>
         </div>
       )}
