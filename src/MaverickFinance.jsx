@@ -2809,14 +2809,28 @@ The user's current financial data:
   };
   const reorderPlannerItem = (fromId, toId) => {
     const key = vKey;
-    const currentOrder = plannerOrderByMonth[key] || plannerItems.map(i => i.id);
+    // Build a complete order that includes ALL current items.
+    // If a saved order exists, append any new items (added since the last reorder)
+    // so they can still be dragged. Without this, new items silently fail to drag
+    // because indexOf returns -1 for IDs not in the stale saved order.
+    const saved = plannerOrderByMonth[key];
+    let currentOrder;
+    if (saved && saved.length > 0) {
+      const savedSet = new Set(saved);
+      const newIds = plannerItems.filter(i => !savedSet.has(i.id)).map(i => i.id);
+      currentOrder = [...saved, ...newIds];
+    } else {
+      currentOrder = plannerItems.map(i => i.id);
+    }
     const fromIdx = currentOrder.indexOf(fromId);
     const toIdx = currentOrder.indexOf(toId);
     if (fromIdx < 0 || toIdx < 0) return;
     const newOrder = [...currentOrder];
     newOrder.splice(fromIdx, 1);
     newOrder.splice(toIdx, 0, fromId);
-    setPlannerOrderByMonth({ ...plannerOrderByMonth, [key]: newOrder });
+    // Also prune any stale IDs no longer in plannerItems
+    const currentIds = new Set(plannerItems.map(i => i.id));
+    setPlannerOrderByMonth({ ...plannerOrderByMonth, [key]: newOrder.filter(id => currentIds.has(id)) });
     setDraggedItemId(null);
     setDragOverItemId(null);
   };
@@ -2898,6 +2912,19 @@ The user's current financial data:
       monthExpenses.forEach(e => { delete newReceipts[e.id]; });
       setReceiptLibrary(newReceipts);
     }
+  };
+
+  // Delete an entire month — removes ALL data associated with that month everywhere
+  const deleteMonth = (key) => {
+    const [y, m] = key.split("-");
+    const label = new Date(+y, +m - 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    if (!window.confirm(`Delete ${label}?\n\nThis permanently removes ALL planner data, expenses, snapshots, receipts, and overrides for this month.\n\nThis cannot be undone.`)) return;
+    // Use clearMonthData to handle the core planner/expense data (skip its own confirm)
+    clearMonthData(key, true);
+    // Also remove net worth snapshot for this month
+    setNetWorthHistory(prev => prev.filter(e => e.date !== key));
+    // Remove balance history snapshot for this month
+    setBalanceHistory(prev => { const copy = { ...prev }; delete copy[key]; return copy; });
   };
 
   // Get list of months that have data (for the data management UI)
@@ -4534,10 +4561,10 @@ The user's current financial data:
                     ↻ Reset Tab Order
                   </button>
                 </div>
-                {/* Clear Month Data */}
+                {/* Delete Month Data */}
                 {monthsWithData.length > 0 && (
                 <div className={`border-t ${dm('border-gray-100', 'border-slate-700')} my-1 pt-1`}>
-                  <p className={`px-3 py-1 text-[10px] font-semibold uppercase tracking-wider ${dm('text-gray-400', 'text-gray-500')}`}>Clear Month Data</p>
+                  <p className={`px-3 py-1 text-[10px] font-semibold uppercase tracking-wider ${dm('text-gray-400', 'text-gray-500')}`}>Delete Month Data</p>
                   <div className="px-3 py-1 space-y-1 max-h-32 overflow-y-auto">
                     {monthsWithData.map(mk => {
                       const [y, m] = mk.split('-').map(Number);
@@ -4546,9 +4573,9 @@ The user's current financial data:
                       return (
                         <div key={mk} className={`flex items-center justify-between py-1 text-xs ${dm('text-gray-600', 'text-gray-300')}`}>
                           <span>{label} {expCount > 0 && <span className={dm('text-gray-400', 'text-gray-500')}>({expCount} exp)</span>}</span>
-                          <button onClick={() => clearMonthData(mk)}
+                          <button onClick={() => deleteMonth(mk)}
                             className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold transition ${dm('bg-red-50 text-red-600 hover:bg-red-100', 'bg-red-900/30 text-red-400 hover:bg-red-900/50')}`}>
-                            <Trash2 size={10} /> Clear
+                            <Trash2 size={10} /> Delete
                           </button>
                         </div>
                       );
@@ -4672,9 +4699,9 @@ The user's current financial data:
                     Viewing {monthLabel(viewYear, viewMonth)} (past month)
                   </span>
                 </div>
-                <button onClick={() => clearMonthData(vKey)}
+                <button onClick={() => deleteMonth(vKey)}
                   className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition ${dm('bg-red-100 text-red-700 hover:bg-red-200', 'bg-red-900/40 text-red-300 hover:bg-red-900/60')}`}>
-                  <Trash2 size={13} /> Clear This Month
+                  <Trash2 size={13} /> Delete This Month
                 </button>
               </div>
             )}
@@ -5486,19 +5513,20 @@ The user's current financial data:
               </button>
             </div>
 
-            {/* Clear month button — only for past months, prominently displayed */}
-            {(viewYear < today.getFullYear() || (viewYear === today.getFullYear() && viewMonth < today.getMonth())) && (
-              <div className={`rounded-xl border-2 border-dashed p-3 flex items-center justify-between ${dm('border-red-200 bg-red-50/50', 'border-red-800 bg-red-950/20')}`}>
-                <div className="flex items-center gap-2">
-                  <AlertCircle size={16} className={dm('text-red-400', 'text-red-500')} />
-                  <span className={`text-xs font-medium ${dm('text-red-600', 'text-red-400')}`}>Past month — clear data if unused</span>
+            {/* Delete month — removes ALL data for this month from the entire app */}
+            <div className={`rounded-xl border-2 border-dashed p-3 flex items-center justify-between ${dm('border-red-200 bg-red-50/50', 'border-red-800 bg-red-950/20')}`}>
+              <div className="flex items-center gap-2">
+                <Trash2 size={16} className={dm('text-red-400', 'text-red-500')} />
+                <div>
+                  <span className={`text-xs font-medium ${dm('text-red-600', 'text-red-400')}`}>Delete {monthLabel(viewYear, viewMonth)}</span>
+                  <p className={`text-[10px] ${dm('text-red-400', 'text-red-500/70')}`}>Removes all planner data, expenses, snapshots & receipts</p>
                 </div>
-                <button onClick={() => clearMonthData(vKey)}
-                  className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition ${dm('bg-red-100 text-red-700 hover:bg-red-200', 'bg-red-900/40 text-red-300 hover:bg-red-900/60')}`}>
-                  <Trash2 size={13} /> Clear Month
-                </button>
               </div>
-            )}
+              <button onClick={() => deleteMonth(vKey)}
+                className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition ${dm('bg-red-100 text-red-700 hover:bg-red-200', 'bg-red-900/40 text-red-300 hover:bg-red-900/60')}`}>
+                <Trash2 size={13} /> Delete Month
+              </button>
+            </div>
 
             {/* Add item form */}
             {plannerDraft && (
@@ -6513,9 +6541,9 @@ The user's current financial data:
                     Viewing past month. {(expensesByMonth[vKey] || []).length} expense{(expensesByMonth[vKey] || []).length !== 1 ? 's' : ''} logged.
                   </span>
                 </div>
-                <button onClick={() => clearMonthData(vKey)}
+                <button onClick={() => deleteMonth(vKey)}
                   className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition ${dm('bg-red-100 text-red-700 hover:bg-red-200', 'bg-red-900/40 text-red-300 hover:bg-red-900/60')}`}>
-                  <Trash2 size={13} /> Clear Month
+                  <Trash2 size={13} /> Delete Month
                 </button>
               </div>
             )}
