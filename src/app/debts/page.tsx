@@ -1,6 +1,7 @@
 "use client";
 
 import EntityPage, { type ColumnDef, type FieldDef } from "@/components/EntityPage";
+import PayoffPanel from "@/components/PayoffPanel";
 import Shell from "@/components/Shell";
 import Stat from "@/components/Stat";
 import { fmtCurrency, fmtPercent } from "@/lib/format";
@@ -78,6 +79,7 @@ export default function DebtsPage() {
           );
         }}
       />
+      <PayoffPanel />
     </Shell>
   );
 }

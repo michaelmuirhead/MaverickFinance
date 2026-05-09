@@ -12,6 +12,7 @@ import {
   FEDERAL_BRACKETS_2025,
   STANDARD_DEDUCTION_2025,
 } from "@/lib/tax";
+import { STATE_PRESETS, bracketsForPreset } from "@/lib/state-tax";
 import type { FilingStatus, Frequency, PaycheckSettings, TaxBracket } from "@/lib/types";
 
 export default function PaycheckPage() {
@@ -48,11 +49,30 @@ function Paycheck() {
   }
 
   function applyFilingStatusDefaults(status: FilingStatus) {
+    setSettings((s) => {
+      const next: PaycheckSettings = {
+        ...s,
+        filingStatus: status,
+        federalBrackets: FEDERAL_BRACKETS_2025[status],
+        standardDeduction: STANDARD_DEDUCTION_2025[status],
+      };
+      // Re-apply the current state preset for the new filing status, if one is selected.
+      const preset = STATE_PRESETS.find((p) => p.code === s.statePresetCode);
+      if (preset && preset.code !== "CUSTOM") {
+        next.stateBrackets = bracketsForPreset(preset, status);
+      }
+      return next;
+    });
+  }
+
+  function applyStatePreset(code: string) {
+    const preset = STATE_PRESETS.find((p) => p.code === code);
+    if (!preset) return;
     setSettings((s) => ({
       ...s,
-      filingStatus: status,
-      federalBrackets: FEDERAL_BRACKETS_2025[status],
-      standardDeduction: STANDARD_DEDUCTION_2025[status],
+      statePresetCode: code,
+      stateBrackets:
+        preset.code === "CUSTOM" ? s.stateBrackets : bracketsForPreset(preset, s.filingStatus),
     }));
   }
 
@@ -211,8 +231,31 @@ function Paycheck() {
         <BracketEditor
           title="State tax brackets"
           brackets={settings.stateBrackets}
-          onChange={(b) => update("stateBrackets", b)}
-          help="Set a single 0% bracket for no-income-tax states."
+          onChange={(b) => {
+            update("stateBrackets", b);
+            // Manual edits switch the selector to "Custom" so we don't claim a preset is active.
+            if (settings.statePresetCode && settings.statePresetCode !== "CUSTOM") {
+              update("statePresetCode", "CUSTOM");
+            }
+          }}
+          help={(() => {
+            const preset = STATE_PRESETS.find((p) => p.code === settings.statePresetCode);
+            return preset?.notes ?? "Pick a state preset or set a single 0% bracket for no-income-tax states.";
+          })()}
+          presetSelector={
+            <div>
+              <label className="label">State preset</label>
+              <select
+                className="select"
+                value={settings.statePresetCode ?? "CUSTOM"}
+                onChange={(e) => applyStatePreset(e.target.value)}
+              >
+                {STATE_PRESETS.map((p) => (
+                  <option key={p.code} value={p.code}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          }
         />
       </div>
 
@@ -255,11 +298,13 @@ function BracketEditor({
   brackets,
   onChange,
   help,
+  presetSelector,
 }: {
   title: string;
   brackets: TaxBracket[];
   onChange: (b: TaxBracket[]) => void;
   help?: string;
+  presetSelector?: React.ReactNode;
 }) {
   function update(i: number, patch: Partial<TaxBracket>) {
     const next = brackets.map((b, idx) => (idx === i ? { ...b, ...patch } : b));
@@ -279,6 +324,7 @@ function BracketEditor({
         <button className="btn" onClick={add}>+ Add bracket</button>
       </div>
       {help && <p style={{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: "0.75rem" }}>{help}</p>}
+      {presetSelector && <div style={{ marginBottom: "0.75rem" }}>{presetSelector}</div>}
       <table>
         <thead>
           <tr>

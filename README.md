@@ -40,12 +40,12 @@ service cloud.firestore {
 
 ## Features
 
-- **Dashboard** – net worth, cash, investments, debts, monthly outflows.
-- **Subscriptions** – recurring services with frequency, monthly/yearly cost rollups.
-- **Debts** – credit cards, loans, mortgages with balances, APR, minimum payments, weighted average APR.
+- **Dashboard** – net worth, cash, investments, debts, monthly outflows. **Take snapshots** to track net worth (with cash/investments/debt breakdown) over time on a line chart.
+- **Subscriptions** – recurring services with frequency, monthly/yearly cost rollups, **spend-by-category** breakdown chart.
+- **Debts** – credit cards, loans, mortgages with balances, APR, minimum payments, weighted average APR. Includes a **payoff projection** comparing avalanche (highest APR first) vs snowball (smallest balance first) with an extra-payment input.
 - **Investments** – portfolio holdings with cost basis, current price, gain/loss.
 - **Bank accounts** – checking/savings/CDs with balances and APY.
-- **Paycheck calculator** – gross-to-net using configurable federal/state tax brackets, FICA (Social Security, Medicare, Additional Medicare), pre/post-tax deductions, standard deduction. Defaults seeded with 2025 US federal brackets.
+- **Paycheck calculator** – gross-to-net using configurable federal/state tax brackets, FICA (Social Security, Medicare, Additional Medicare), pre/post-tax deductions, standard deduction. Includes **state tax presets** for all 50 states (no-tax, flat, and progressive). Defaults seeded with 2025 US brackets.
 
 ## Data model
 
@@ -55,4 +55,5 @@ All data is stored under `users/{uid}/...` in Firestore:
 - `users/{uid}/debts/{id}`
 - `users/{uid}/investments/{id}`
 - `users/{uid}/accounts/{id}`
+- `users/{uid}/snapshots/{id}` – `{ takenAt, cash, investments, debts, netWorth }`
 - `users/{uid}/settings/paycheck`

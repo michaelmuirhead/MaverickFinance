@@ -3,6 +3,7 @@
 import EntityPage, { type ColumnDef, type FieldDef } from "@/components/EntityPage";
 import Shell from "@/components/Shell";
 import Stat from "@/components/Stat";
+import SubscriptionBreakdown from "@/components/SubscriptionBreakdown";
 import { fmtCurrency } from "@/lib/format";
 import { FREQUENCY_PER_YEAR, type Subscription } from "@/lib/types";
 
@@ -62,6 +63,7 @@ export default function SubscriptionsPage() {
           );
         }}
       />
+      <SubscriptionBreakdown />
     </Shell>
   );
 }

@@ -15,6 +15,7 @@ import {
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import type { Snapshot } from "./types";
 
 export type CollectionName = "subscriptions" | "debts" | "investments" | "accounts";
 
@@ -68,4 +69,22 @@ export async function getSettings<T>(uid: string): Promise<T | null> {
 
 export async function saveSettings<T extends Record<string, unknown>>(uid: string, data: T): Promise<void> {
   await setDoc(doc(db, "users", uid, "settings", SETTINGS_DOC), data, { merge: true });
+}
+
+export function watchSnapshots(uid: string, cb: (rows: (Snapshot & { id: string })[]) => void): () => void {
+  const q = query(collection(db, "users", uid, "snapshots"), orderBy("takenAt", "asc"));
+  return onSnapshot(q, (snap) => {
+    cb(
+      snap.docs.map((d) => ({ id: d.id, ...(d.data() as Snapshot) }))
+    );
+  });
+}
+
+export async function createSnapshot(uid: string, data: Omit<Snapshot, "id">): Promise<string> {
+  const ref = await addDoc(collection(db, "users", uid, "snapshots"), data);
+  return ref.id;
+}
+
+export async function deleteSnapshot(uid: string, id: string): Promise<void> {
+  await deleteDoc(doc(db, "users", uid, "snapshots", id));
 }

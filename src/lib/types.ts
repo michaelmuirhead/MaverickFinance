@@ -58,6 +58,15 @@ export type BankAccount = {
   notes?: string;
 };
 
+export type Snapshot = {
+  id?: string;
+  takenAt: number;
+  cash: number;
+  investments: number;
+  debts: number;
+  netWorth: number;
+};
+
 export type FilingStatus = "single" | "married-joint" | "married-separate" | "head-of-household";
 
 export type TaxBracket = {
@@ -70,6 +79,7 @@ export type PaycheckSettings = {
   payFrequency: Frequency;
   federalBrackets: TaxBracket[];
   stateBrackets: TaxBracket[];
+  statePresetCode?: string;
   ficaSocialSecurityRate: number;
   ficaMedicareRate: number;
   additionalMedicareRate: number;
